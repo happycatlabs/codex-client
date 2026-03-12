@@ -17,6 +17,7 @@ interface PendingRequest {
 export interface StdioProcess {
   stdin: { write(data: string): unknown; end(): unknown };
   stdout: ReadableStream<Uint8Array> | null;
+  stderr: ReadableStream<Uint8Array> | null;
   exited: Promise<number>;
   kill(signal?: string): unknown;
 }
@@ -24,15 +25,19 @@ export interface StdioProcess {
 export class StdioTransport {
   private readonly messageHandlers = new Set<(message: JsonRpcMessage) => void>();
   private readonly errorHandlers = new Set<(error: Error) => void>();
+  private readonly stderrHandlers = new Set<(line: string) => void>();
   private readonly pending = new Map<number, PendingRequest>();
   private nextRequestId = 0;
   private closed = false;
   private closeInitiated = false;
-  private readonly decoder = new TextDecoder();
+  private readonly stdoutDecoder = new TextDecoder();
+  private readonly stderrDecoder = new TextDecoder();
   private readLoopPromise: Promise<void> | null = null;
+  private stderrReadLoopPromise: Promise<void> | null = null;
 
   constructor(private readonly process: StdioProcess) {
     this.readLoopPromise = this.readLoop();
+    this.stderrReadLoopPromise = this.readStderrLoop();
     this.process.exited
       .then((code) => {
         if (!this.closeInitiated) {
@@ -58,18 +63,21 @@ export class StdioTransport {
         cwd,
         stdin: "pipe",
         stdout: "pipe",
-        stderr: "inherit",
+        stderr: "pipe",
       });
       return new StdioTransport(child as unknown as StdioProcess);
     }
 
     const child = nodeSpawn(codexPath, ["app-server"], {
       cwd,
-      stdio: ["pipe", "pipe", "inherit"],
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
     const stdout = child.stdout
       ? (Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>)
+      : null;
+    const stderr = child.stderr
+      ? (Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>)
       : null;
 
     const exited = new Promise<number>((resolve, reject) => {
@@ -83,6 +91,7 @@ export class StdioTransport {
         end: () => child.stdin?.end(),
       },
       stdout,
+      stderr,
       exited,
       kill: (signal?: string) => { if (signal) { child.kill(signal as Parameters<typeof child.kill>[0]); } else { child.kill(); } },
     });
@@ -108,6 +117,13 @@ export class StdioTransport {
     this.errorHandlers.add(handler);
     return () => {
       this.errorHandlers.delete(handler);
+    };
+  }
+
+  onStderr(handler: (line: string) => void): () => void {
+    this.stderrHandlers.add(handler);
+    return () => {
+      this.stderrHandlers.delete(handler);
     };
   }
 
@@ -157,6 +173,14 @@ export class StdioTransport {
       }
     }
 
+    if (this.stderrReadLoopPromise) {
+      try {
+        await this.stderrReadLoopPromise;
+      } catch {
+        // ignore stderr read-loop errors during close
+      }
+    }
+
     try {
       await this.process.exited;
     } catch {
@@ -167,11 +191,23 @@ export class StdioTransport {
   }
 
   private async readLoop(): Promise<void> {
-    if (!this.process.stdout) {
+    await this.readTextStream(this.process.stdout, this.stdoutDecoder, (line) => this.handleLine(line));
+  }
+
+  private async readStderrLoop(): Promise<void> {
+    await this.readTextStream(this.process.stderr, this.stderrDecoder, (line) => this.emitStderr(line));
+  }
+
+  private async readTextStream(
+    stream: ReadableStream<Uint8Array> | null,
+    decoder: TextDecoder,
+    onLine: (line: string) => void,
+  ): Promise<void> {
+    if (!stream) {
       return;
     }
 
-    const reader = this.process.stdout.getReader();
+    const reader = stream.getReader();
     let buffer = "";
 
     while (true) {
@@ -180,7 +216,7 @@ export class StdioTransport {
         break;
       }
 
-      buffer += this.decoder.decode(value, { stream: true });
+      buffer += decoder.decode(value, { stream: true });
 
       let newline = buffer.indexOf("\n");
       while (newline >= 0) {
@@ -188,7 +224,7 @@ export class StdioTransport {
         buffer = buffer.slice(newline + 1);
 
         if (line.length > 0) {
-          this.handleLine(line);
+          onLine(line);
         }
 
         newline = buffer.indexOf("\n");
@@ -197,7 +233,7 @@ export class StdioTransport {
 
     const tail = buffer.trim();
     if (tail.length > 0) {
-      this.handleLine(tail);
+      onLine(tail);
     }
   }
 
@@ -252,6 +288,12 @@ export class StdioTransport {
   private emitError(error: Error): void {
     for (const handler of this.errorHandlers) {
       handler(error);
+    }
+  }
+
+  private emitStderr(line: string): void {
+    for (const handler of this.stderrHandlers) {
+      handler(line);
     }
   }
 }

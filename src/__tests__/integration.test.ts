@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 
 // Try common locations for the codex binary
 const CODEX_PATHS = [
+  "/Applications/Codex.app/Contents/Resources/codex",
   Bun.which("codex"),
   `${process.env.HOME}/.nvm/versions/node/v22.22.0/bin/codex`,
   "/opt/homebrew/bin/codex",
