@@ -6,6 +6,7 @@ import type {
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponse,
+  RequestId,
 } from "./types.js";
 
 interface PendingRequest {
@@ -26,7 +27,7 @@ export class StdioTransport {
   private readonly messageHandlers = new Set<(message: JsonRpcMessage) => void>();
   private readonly errorHandlers = new Set<(error: Error) => void>();
   private readonly stderrHandlers = new Set<(line: string) => void>();
-  private readonly pending = new Map<number, PendingRequest>();
+  private readonly pending = new Map<RequestId, PendingRequest>();
   private nextRequestId = 0;
   private closed = false;
   private closeInitiated = false;
@@ -300,6 +301,10 @@ export class StdioTransport {
 
 function isJsonRpcResponse(message: JsonRpcMessage): message is JsonRpcResponse {
   return "id" in message && !("method" in message);
+}
+
+export function isJsonRpcRequest(message: JsonRpcMessage): message is JsonRpcRequest {
+  return "id" in message && "method" in message;
 }
 
 export function isJsonRpcNotification(

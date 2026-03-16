@@ -4,13 +4,13 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue
 export interface JsonRpcRequest {
   jsonrpc: "2.0";
   method: string;
-  id: number;
+  id: RequestId;
   params?: unknown;
 }
 
 export interface JsonRpcResponse {
   jsonrpc: "2.0";
-  id: number;
+  id: RequestId;
   result?: unknown;
   error?: JsonRpcError;
 }
@@ -27,6 +27,7 @@ export interface JsonRpcError {
   data?: unknown;
 }
 
+export type RequestId = string | number;
 export type JsonRpcMessage = JsonRpcRequest | JsonRpcResponse | JsonRpcNotification;
 
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -523,6 +524,35 @@ export interface TurnStartedNotification {
   turn: Turn;
 }
 
+export interface ToolRequestUserInputOption {
+  label: string;
+  description: string;
+}
+
+export interface ToolRequestUserInputQuestion {
+  header: string;
+  id: string;
+  question: string;
+  isOther?: boolean;
+  isSecret?: boolean;
+  options?: ToolRequestUserInputOption[] | null;
+}
+
+export interface ToolRequestUserInputParams {
+  itemId: string;
+  threadId: string;
+  turnId: string;
+  questions: ToolRequestUserInputQuestion[];
+}
+
+export interface ToolRequestUserInputAnswer {
+  answers: string[];
+}
+
+export interface ToolRequestUserInputResponse {
+  answers: Record<string, ToolRequestUserInputAnswer>;
+}
+
 export interface TurnCompletedNotification {
   threadId: string;
   turn: Turn;
@@ -595,6 +625,11 @@ export interface ThreadNameUpdatedNotification {
 
 export interface AppListUpdatedNotification {
   data: AppInfo[];
+}
+
+export interface ServerRequestResolvedNotification {
+  threadId: string;
+  requestId: RequestId;
 }
 
 export interface InitializeCapabilities {

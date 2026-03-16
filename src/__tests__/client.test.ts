@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { CodexClient } from "../client";
 import { StdioTransport, type StdioProcess } from "../transport";
-import type { JsonRpcMessage, JsonRpcNotification, Thread, ThreadItem, Turn } from "../types";
+import type { JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, Thread, ThreadItem, Turn } from "../types";
 
 class MockTransport {
   public readonly sent: JsonRpcMessage[] = [];
@@ -59,6 +59,13 @@ class MockTransport {
 
   emitNotification(method: string, params?: unknown): void {
     const message: JsonRpcNotification = { jsonrpc: "2.0", method, params };
+    for (const handler of this.messageHandlers) {
+      handler(message);
+    }
+  }
+
+  emitRequest(method: string, id: string | number, params?: unknown): void {
+    const message: JsonRpcRequest = { jsonrpc: "2.0", method, id, params };
     for (const handler of this.messageHandlers) {
       handler(message);
     }
@@ -131,6 +138,75 @@ describe("CodexClient unit", () => {
     transport.emitStderr("codex warning");
 
     expect(received).toEqual(["codex warning"]);
+  });
+
+  test("emits user-input server requests and responds with answers", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    const received: unknown[] = [];
+    client.on("request:userInput", (payload) => {
+      received.push(payload);
+      client.respondToUserInputRequest("req-1", {
+        answers: {
+          clarification: {
+            answers: ["use migration A"],
+          },
+        },
+      });
+    });
+
+    transport.emitRequest("item/tool/requestUserInput", "req-1", {
+      itemId: "item-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      questions: [
+        {
+          header: "Schema",
+          id: "clarification",
+          question: "Which migration should I use?",
+          isOther: true,
+          options: [
+            { label: "A", description: "Use migration A" },
+            { label: "B", description: "Use migration B" },
+          ],
+        },
+      ],
+    });
+
+    expect(received).toEqual([{
+      requestId: "req-1",
+      itemId: "item-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      questions: [
+        {
+          header: "Schema",
+          id: "clarification",
+          question: "Which migration should I use?",
+          isOther: true,
+          options: [
+            { label: "A", description: "Use migration A" },
+            { label: "B", description: "Use migration B" },
+          ],
+        },
+      ],
+    }]);
+
+    expect(transport.sent).toContainEqual({
+      jsonrpc: "2.0",
+      id: "req-1",
+      result: {
+        answers: {
+          clarification: {
+            answers: ["use migration A"],
+          },
+        },
+      },
+    });
   });
 
   test("resumeThread", async () => {
@@ -358,6 +434,7 @@ describe("StdioTransport", () => {
         },
       },
       stdout,
+      stderr: null,
       exited: new Promise<number>((resolve) => {
         resolveExit = resolve;
       }),

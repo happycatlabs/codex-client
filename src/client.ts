@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { StdioTransport, isJsonRpcNotification } from "./transport.js";
+import { StdioTransport, isJsonRpcNotification, isJsonRpcRequest } from "./transport.js";
 import type {
   AgentMessageDeltaNotification,
   AppInfo,
@@ -31,6 +31,7 @@ import type {
   InitializeResponse,
   ItemNotification,
   JsonRpcMessage,
+  JsonRpcRequest,
   ListLoadedThreadsParams,
   ListModelsParams,
   ListThreadsParams,
@@ -38,8 +39,10 @@ import type {
   ModelListResult,
   PlanDeltaNotification,
   PlanUpdatedNotification,
+  RequestId,
   ReviewResult,
   ResumeThreadParams,
+  ServerRequestResolvedNotification,
   SkillsListParams,
   SkillsListResult,
   StartReviewParams,
@@ -55,6 +58,8 @@ import type {
   ThreadStartedNotification,
   ThreadStatusChangedNotification,
   ThreadUnsubscribeResult,
+  ToolRequestUserInputParams,
+  ToolRequestUserInputResponse,
   Turn,
   TurnCompletedNotification,
   TurnStartedNotification,
@@ -196,6 +201,28 @@ export class CodexClient extends EventEmitter {
   ): Promise<T> {
     const transport = this.ensureConnected();
     return (await transport.request(method, params, timeoutMs)) as T;
+  }
+
+  respondToServerRequest(requestId: RequestId, result: unknown): void {
+    const transport = this.ensureConnected();
+    transport.send({
+      jsonrpc: "2.0",
+      id: typeof requestId === "number" ? requestId : String(requestId),
+      result,
+    });
+  }
+
+  rejectServerRequest(requestId: RequestId, error: { code: number; message: string; data?: unknown }): void {
+    const transport = this.ensureConnected();
+    transport.send({
+      jsonrpc: "2.0",
+      id: typeof requestId === "number" ? requestId : String(requestId),
+      error,
+    });
+  }
+
+  respondToUserInputRequest(requestId: RequestId, response: ToolRequestUserInputResponse): void {
+    this.respondToServerRequest(requestId, response);
   }
 
   async startThread(params: StartThreadParams = {}): Promise<Thread> {
@@ -562,6 +589,11 @@ export class CodexClient extends EventEmitter {
   }
 
   private handleMessage(message: JsonRpcMessage): void {
+    if (isJsonRpcRequest(message)) {
+      this.handleServerRequest(message);
+      return;
+    }
+
     if (!isJsonRpcNotification(message)) {
       return;
     }
@@ -682,11 +714,38 @@ export class CodexClient extends EventEmitter {
         this.emit("app:list:updated", data);
         break;
       }
+      case "serverRequest/resolved": {
+        const data = asServerRequestResolvedNotification(params);
+        if (!data) return;
+        this.emit("serverRequest:resolved", data);
+        break;
+      }
       case "skills/changed": {
         this.emit("skills:changed");
         break;
       }
       default:
+        break;
+    }
+  }
+
+  private handleServerRequest(message: JsonRpcRequest): void {
+    switch (message.method) {
+      case "item/tool/requestUserInput":
+      case "tool/requestUserInput": {
+        const data = asToolRequestUserInputParams(message.params);
+        if (!data) {
+          return;
+        }
+
+        this.emit("request:userInput", {
+          requestId: message.id,
+          ...data,
+        });
+        break;
+      }
+      default:
+        this.emit("server:request", message);
         break;
     }
   }
@@ -1134,6 +1193,83 @@ function asAppListUpdatedNotification(params: unknown): AppListUpdatedNotificati
   if (isObject(params) && Array.isArray(params.data)) {
     return {
       data: params.data.filter(isAppInfo),
+    };
+  }
+
+  return null;
+}
+
+function asToolRequestUserInputParams(params: unknown): ToolRequestUserInputParams | null {
+  if (
+    isObject(params) &&
+    typeof params.itemId === "string" &&
+    typeof params.threadId === "string" &&
+    typeof params.turnId === "string" &&
+    Array.isArray(params.questions)
+  ) {
+    const questions = params.questions
+      .map((question) => asToolRequestUserInputQuestion(question))
+      .filter((question): question is NonNullable<typeof question> => question !== null);
+
+    return {
+      itemId: params.itemId,
+      threadId: params.threadId,
+      turnId: params.turnId,
+      questions,
+    };
+  }
+
+  return null;
+}
+
+function asToolRequestUserInputQuestion(params: unknown) {
+  if (
+    isObject(params) &&
+    typeof params.header === "string" &&
+    typeof params.id === "string" &&
+    typeof params.question === "string"
+  ) {
+    return {
+      header: params.header,
+      id: params.id,
+      question: params.question,
+      ...(typeof params.isOther === "boolean" ? { isOther: params.isOther } : {}),
+      ...(typeof params.isSecret === "boolean" ? { isSecret: params.isSecret } : {}),
+      ...(Array.isArray(params.options)
+        ? {
+            options: params.options
+              .map((option) => asToolRequestUserInputOption(option))
+              .filter((option): option is NonNullable<typeof option> => option !== null),
+          }
+        : params.options === null
+          ? { options: null }
+          : {}),
+    };
+  }
+
+  return null;
+}
+
+function asToolRequestUserInputOption(params: unknown) {
+  if (isObject(params) && typeof params.label === "string" && typeof params.description === "string") {
+    return {
+      label: params.label,
+      description: params.description,
+    };
+  }
+
+  return null;
+}
+
+function asServerRequestResolvedNotification(params: unknown): ServerRequestResolvedNotification | null {
+  if (
+    isObject(params) &&
+    typeof params.threadId === "string" &&
+    (typeof params.requestId === "string" || typeof params.requestId === "number")
+  ) {
+    return {
+      threadId: params.threadId,
+      requestId: params.requestId,
     };
   }
 
