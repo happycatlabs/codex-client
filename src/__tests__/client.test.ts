@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { CodexClient } from "../client";
 import { StdioTransport, type StdioProcess } from "../transport";
-import type { JsonRpcMessage, JsonRpcNotification, Thread, ThreadItem, Turn } from "../types";
+import type { JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, Thread, ThreadItem, Turn } from "../types";
 
 class MockTransport {
   public readonly sent: JsonRpcMessage[] = [];
@@ -10,6 +10,7 @@ class MockTransport {
 
   private readonly messageHandlers = new Set<(message: JsonRpcMessage) => void>();
   private readonly errorHandlers = new Set<(error: Error) => void>();
+  private readonly stderrHandlers = new Set<(line: string) => void>();
   private readonly responders = new Map<string, (params?: unknown) => unknown>();
 
   send(message: JsonRpcMessage): void {
@@ -41,6 +42,13 @@ class MockTransport {
     };
   }
 
+  onStderr(handler: (line: string) => void): () => void {
+    this.stderrHandlers.add(handler);
+    return () => {
+      this.stderrHandlers.delete(handler);
+    };
+  }
+
   async close(): Promise<void> {
     this.closed = true;
   }
@@ -56,9 +64,22 @@ class MockTransport {
     }
   }
 
+  emitRequest(method: string, id: string | number, params?: unknown): void {
+    const message: JsonRpcRequest = { jsonrpc: "2.0", method, id, params };
+    for (const handler of this.messageHandlers) {
+      handler(message);
+    }
+  }
+
   emitError(error: Error): void {
     for (const handler of this.errorHandlers) {
       handler(error);
+    }
+  }
+
+  emitStderr(line: string): void {
+    for (const handler of this.stderrHandlers) {
+      handler(line);
     }
   }
 }
@@ -66,7 +87,7 @@ class MockTransport {
 describe("CodexClient unit", () => {
   test("initialize handshake", async () => {
     const transport = new MockTransport();
-    transport.setResponder("initialize", () => ({ capabilities: {} }));
+    transport.setResponder("initialize", () => ({ userAgent: "openclaw/0.1.0" }));
 
     const client = new CodexClient({
       transportFactory: () => transport,
@@ -75,6 +96,16 @@ describe("CodexClient unit", () => {
     await client.connect();
 
     expect(transport.requests[0]?.method).toBe("initialize");
+    expect(transport.requests[0]?.params).toEqual({
+      clientInfo: {
+        name: "openclaw",
+        title: "OpenClaw",
+        version: "0.1.0",
+      },
+      capabilities: {
+        experimentalApi: true,
+      },
+    });
     expect(transport.sent).toContainEqual({ jsonrpc: "2.0", method: "initialized" });
   });
 
@@ -93,6 +124,91 @@ describe("CodexClient unit", () => {
     expect(transport.requests[1]?.method).toBe("thread/start");
   });
 
+  test("re-emits stderr lines for consumers that subscribe", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    const received: string[] = [];
+    client.on("stderr", (line) => {
+      received.push(String(line));
+    });
+
+    await client.connect();
+    transport.emitStderr("codex warning");
+
+    expect(received).toEqual(["codex warning"]);
+  });
+
+  test("emits user-input server requests and responds with answers", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    const received: unknown[] = [];
+    client.on("request:userInput", (payload) => {
+      received.push(payload);
+      client.respondToUserInputRequest("req-1", {
+        answers: {
+          clarification: {
+            answers: ["use migration A"],
+          },
+        },
+      });
+    });
+
+    transport.emitRequest("item/tool/requestUserInput", "req-1", {
+      itemId: "item-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      questions: [
+        {
+          header: "Schema",
+          id: "clarification",
+          question: "Which migration should I use?",
+          isOther: true,
+          options: [
+            { label: "A", description: "Use migration A" },
+            { label: "B", description: "Use migration B" },
+          ],
+        },
+      ],
+    });
+
+    expect(received).toEqual([{
+      requestId: "req-1",
+      itemId: "item-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      questions: [
+        {
+          header: "Schema",
+          id: "clarification",
+          question: "Which migration should I use?",
+          isOther: true,
+          options: [
+            { label: "A", description: "Use migration A" },
+            { label: "B", description: "Use migration B" },
+          ],
+        },
+      ],
+    }]);
+
+    expect(transport.sent).toContainEqual({
+      jsonrpc: "2.0",
+      id: "req-1",
+      result: {
+        answers: {
+          clarification: {
+            answers: ["use migration A"],
+          },
+        },
+      },
+    });
+  });
+
   test("resumeThread", async () => {
     const transport = new MockTransport();
     transport.setResponder("initialize", () => ({}));
@@ -103,7 +219,10 @@ describe("CodexClient unit", () => {
 
     const result = await client.resumeThread("thread-2");
     expect(result.id).toBe("thread-2");
-    expect(transport.requests[1]?.params).toEqual({ threadId: "thread-2" });
+    expect(transport.requests[1]?.params).toEqual({
+      threadId: "thread-2",
+      persistExtendedHistory: false,
+    });
   });
 
   test("startTurn", async () => {
@@ -156,7 +275,7 @@ describe("CodexClient unit", () => {
       threadId: "thread-1",
       turnId: "turn-1",
       itemId: "item-1",
-      text: "hello world",
+      delta: "hello world",
     });
     transport.emitNotification("item/completed", {
       threadId: "thread-1",
@@ -219,6 +338,80 @@ describe("CodexClient unit", () => {
 
     await expect(client.connect()).rejects.toThrow("boom");
   });
+
+  test("compactThread uses thread/compact/start", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+    transport.setResponder("thread/compact/start", () => ({}));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    await client.compactThread("thread-1");
+
+    expect(transport.requests[1]?.method).toBe("thread/compact/start");
+    expect(transport.requests[1]?.params).toEqual({ threadId: "thread-1" });
+  });
+
+  test("listSkills calls skills/list", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+    transport.setResponder("skills/list", () => ({
+      data: [{ cwd: "/tmp", skills: [], errors: [] }],
+    }));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    const result = await client.listSkills({ cwds: ["/tmp"], forceReload: true });
+
+    expect(result.data).toEqual([{ cwd: "/tmp", skills: [], errors: [] }]);
+    expect(transport.requests[1]?.method).toBe("skills/list");
+  });
+
+  test("command exec string commands are normalized through a shell", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+    transport.setResponder("command/exec", () => ({ exitCode: 0, stdout: "", stderr: "" }));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    await client.execCommand({ command: "echo hello" });
+
+    const request = transport.requests[1];
+    expect(request?.method).toBe("command/exec");
+    expect(request?.params).toMatchObject({
+      command: [expect.any(String), "-lc", "echo hello"],
+    });
+  });
+
+  test("emits command exec output deltas", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    const received: unknown[] = [];
+    client.on("command:exec:outputDelta", (payload) => {
+      received.push(payload);
+    });
+
+    transport.emitNotification("command/exec/outputDelta", {
+      processId: "proc-1",
+      stream: "stdout",
+      deltaBase64: "aGVsbG8=",
+      capReached: false,
+    });
+
+    expect(received).toEqual([{
+      processId: "proc-1",
+      stream: "stdout",
+      deltaBase64: "aGVsbG8=",
+      capReached: false,
+    }]);
+  });
 });
 
 describe("StdioTransport", () => {
@@ -241,6 +434,7 @@ describe("StdioTransport", () => {
         },
       },
       stdout,
+      stderr: null,
       exited: new Promise<number>((resolve) => {
         resolveExit = resolve;
       }),
