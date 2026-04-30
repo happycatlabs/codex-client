@@ -116,14 +116,12 @@ export class CodexClient extends EventEmitter {
       approvalPolicy: options.approvalPolicy ?? DEFAULT_OPTIONS.approvalPolicy,
       sandbox: options.sandbox ?? DEFAULT_OPTIONS.sandbox,
       experimentalApi: options.experimentalApi ?? DEFAULT_OPTIONS.experimentalApi,
-      optOutNotificationMethods:
-        options.optOutNotificationMethods ?? DEFAULT_OPTIONS.optOutNotificationMethods,
+      optOutNotificationMethods: options.optOutNotificationMethods ?? DEFAULT_OPTIONS.optOutNotificationMethods,
       codexPath: options.codexPath ?? DEFAULT_OPTIONS.codexPath,
     };
 
     this.transportFactory =
-      options.transportFactory ??
-      ((cwd: string) => StdioTransport.spawn(cwd, this.options.codexPath));
+      options.transportFactory ?? ((cwd: string) => StdioTransport.spawn(cwd, this.options.codexPath));
   }
 
   async connect(): Promise<void> {
@@ -141,14 +139,15 @@ export class CodexClient extends EventEmitter {
       this.emit("error", error);
     });
 
-    this.unsubscribeStderr = this.transport.onStderr?.((line) => {
-      if (this.listenerCount("stderr") > 0) {
-        this.emit("stderr", line);
-        return;
-      }
+    this.unsubscribeStderr =
+      this.transport.onStderr?.((line) => {
+        if (this.listenerCount("stderr") > 0) {
+          this.emit("stderr", line);
+          return;
+        }
 
-      console.error(line);
-    }) ?? null;
+        console.error(line);
+      }) ?? null;
 
     const initializeParams: InitializeParams = {
       clientInfo: {
@@ -194,11 +193,7 @@ export class CodexClient extends EventEmitter {
     await current.close();
   }
 
-  async request<T = unknown>(
-    method: string,
-    params?: unknown,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-  ): Promise<T> {
+  async request<T = unknown>(method: string, params?: unknown, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
     const transport = this.ensureConnected();
     return (await transport.request(method, params, timeoutMs)) as T;
   }
@@ -236,9 +231,7 @@ export class CodexClient extends EventEmitter {
       ...(params.config !== undefined ? { config: params.config } : {}),
       ...(params.serviceName !== undefined ? { serviceName: params.serviceName } : {}),
       ...(params.baseInstructions !== undefined ? { baseInstructions: params.baseInstructions } : {}),
-      ...(params.developerInstructions !== undefined
-        ? { developerInstructions: params.developerInstructions }
-        : {}),
+      ...(params.developerInstructions !== undefined ? { developerInstructions: params.developerInstructions } : {}),
       ...(params.personality !== undefined ? { personality: params.personality } : {}),
       ...(params.ephemeral !== undefined ? { ephemeral: params.ephemeral } : {}),
       experimentalRawEvents: params.experimentalRawEvents ?? false,
@@ -261,9 +254,7 @@ export class CodexClient extends EventEmitter {
       ...(params.sandbox !== undefined ? { sandbox: params.sandbox } : {}),
       ...(params.config !== undefined ? { config: params.config } : {}),
       ...(params.baseInstructions !== undefined ? { baseInstructions: params.baseInstructions } : {}),
-      ...(params.developerInstructions !== undefined
-        ? { developerInstructions: params.developerInstructions }
-        : {}),
+      ...(params.developerInstructions !== undefined ? { developerInstructions: params.developerInstructions } : {}),
       ...(params.personality !== undefined ? { personality: params.personality } : {}),
       persistExtendedHistory: params.persistExtendedHistory ?? false,
     });
@@ -283,9 +274,7 @@ export class CodexClient extends EventEmitter {
       ...(params.sandbox !== undefined ? { sandbox: params.sandbox } : {}),
       ...(params.config !== undefined ? { config: params.config } : {}),
       ...(params.baseInstructions !== undefined ? { baseInstructions: params.baseInstructions } : {}),
-      ...(params.developerInstructions !== undefined
-        ? { developerInstructions: params.developerInstructions }
-        : {}),
+      ...(params.developerInstructions !== undefined ? { developerInstructions: params.developerInstructions } : {}),
       ...(params.ephemeral !== undefined ? { ephemeral: params.ephemeral } : {}),
       persistExtendedHistory: params.persistExtendedHistory ?? false,
     });
@@ -371,9 +360,7 @@ export class CodexClient extends EventEmitter {
 
     return {
       ...(isTurn(result.turn) ? { turn: result.turn } : {}),
-      ...(typeof result.reviewThreadId === "string"
-        ? { reviewThreadId: result.reviewThreadId }
-        : {}),
+      ...(typeof result.reviewThreadId === "string" ? { reviewThreadId: result.reviewThreadId } : {}),
     };
   }
 
@@ -382,9 +369,7 @@ export class CodexClient extends EventEmitter {
     return extractModelList(result);
   }
 
-  async listExperimentalFeatures(
-    params: ExperimentalFeatureListParams = {},
-  ): Promise<ExperimentalFeatureListResult> {
+  async listExperimentalFeatures(params: ExperimentalFeatureListParams = {}): Promise<ExperimentalFeatureListResult> {
     const result = await this.request("experimentalFeature/list", params);
     return extractExperimentalFeatureList(result);
   }
@@ -533,10 +518,7 @@ export class CodexClient extends EventEmitter {
         agentMessagesByTurn.set(payload.turnId, byItem);
       }
 
-      if (
-        payload.item.type === "enteredReviewMode" ||
-        payload.item.type === "exitedReviewMode"
-      ) {
+      if (payload.item.type === "enteredReviewMode" || payload.item.type === "exitedReviewMode") {
         const review = payload.item.review;
         if (typeof review === "string" && review.length > 0) {
           reviewTexts.push(review);
@@ -856,9 +838,7 @@ function extractThreadList(result: unknown): ThreadListResult {
   if (isObject(result) && Array.isArray(result.data)) {
     return {
       data: result.data.filter(isThread),
-      ...(typeof result.nextCursor === "string" || result.nextCursor === null
-        ? { nextCursor: result.nextCursor }
-        : {}),
+      ...(typeof result.nextCursor === "string" || result.nextCursor === null ? { nextCursor: result.nextCursor } : {}),
     };
   }
 
@@ -869,9 +849,7 @@ function extractLoadedThreadList(result: unknown): ThreadLoadedListResult {
   if (isObject(result) && Array.isArray(result.data)) {
     return {
       data: result.data.filter((entry): entry is string => typeof entry === "string"),
-      ...(typeof result.nextCursor === "string" || result.nextCursor === null
-        ? { nextCursor: result.nextCursor }
-        : {}),
+      ...(typeof result.nextCursor === "string" || result.nextCursor === null ? { nextCursor: result.nextCursor } : {}),
     };
   }
 
@@ -882,9 +860,7 @@ function extractModelList(result: unknown): ModelListResult {
   if (isObject(result) && Array.isArray(result.data)) {
     return {
       data: result.data.filter(isModelInfo),
-      ...(typeof result.nextCursor === "string" || result.nextCursor === null
-        ? { nextCursor: result.nextCursor }
-        : {}),
+      ...(typeof result.nextCursor === "string" || result.nextCursor === null ? { nextCursor: result.nextCursor } : {}),
     };
   }
 
@@ -895,9 +871,7 @@ function extractExperimentalFeatureList(result: unknown): ExperimentalFeatureLis
   if (isObject(result) && Array.isArray(result.data)) {
     return {
       data: result.data.filter(isExperimentalFeature),
-      ...(typeof result.nextCursor === "string" || result.nextCursor === null
-        ? { nextCursor: result.nextCursor }
-        : {}),
+      ...(typeof result.nextCursor === "string" || result.nextCursor === null ? { nextCursor: result.nextCursor } : {}),
     };
   }
 
@@ -928,9 +902,7 @@ function extractAppList(result: unknown): AppListResult {
   if (isObject(result) && Array.isArray(result.data)) {
     return {
       data: result.data.filter(isAppInfo),
-      ...(typeof result.nextCursor === "string" || result.nextCursor === null
-        ? { nextCursor: result.nextCursor }
-        : {}),
+      ...(typeof result.nextCursor === "string" || result.nextCursor === null ? { nextCursor: result.nextCursor } : {}),
     };
   }
 
@@ -970,11 +942,12 @@ function extractConfigWriteResult(result: unknown): ConfigWriteResult {
 }
 
 function extractConfigRequirementsReadResult(result: unknown): ConfigRequirementsReadResult {
-  if (isObject(result) && ("requirements" in result)) {
+  if (isObject(result) && "requirements" in result) {
     return {
-      requirements: isObject(result.requirements) || result.requirements === null
-        ? (result.requirements as ConfigRequirementsReadResult["requirements"])
-        : null,
+      requirements:
+        isObject(result.requirements) || result.requirements === null
+          ? (result.requirements as ConfigRequirementsReadResult["requirements"])
+          : null,
     };
   }
 
@@ -1079,9 +1052,7 @@ function asCommandOutputDeltaNotification(params: unknown): CommandOutputDeltaNo
   return null;
 }
 
-function asCommandExecOutputDeltaNotification(
-  params: unknown,
-): CommandExecOutputDeltaNotification | null {
+function asCommandExecOutputDeltaNotification(params: unknown): CommandExecOutputDeltaNotification | null {
   if (
     isObject(params) &&
     typeof params.processId === "string" &&
@@ -1294,10 +1265,7 @@ function isThread(value: unknown): value is Thread {
 
 function isTurn(value: unknown): value is Turn {
   return (
-    isObject(value) &&
-    typeof value.id === "string" &&
-    typeof value.status === "string" &&
-    Array.isArray(value.items)
+    isObject(value) && typeof value.id === "string" && typeof value.status === "string" && Array.isArray(value.items)
   );
 }
 
@@ -1325,20 +1293,11 @@ function isExperimentalFeature(value: unknown): value is ExperimentalFeatureList
 }
 
 function isCollaborationModeMask(value: unknown): value is CollaborationModeListResult["data"][number] {
-  return (
-    isObject(value) &&
-    typeof value.name === "string" &&
-    ("mode" in value)
-  );
+  return isObject(value) && typeof value.name === "string" && "mode" in value;
 }
 
 function isSkillsListEntry(value: unknown): value is SkillsListResult["data"][number] {
-  return (
-    isObject(value) &&
-    typeof value.cwd === "string" &&
-    Array.isArray(value.skills) &&
-    Array.isArray(value.errors)
-  );
+  return isObject(value) && typeof value.cwd === "string" && Array.isArray(value.skills) && Array.isArray(value.errors);
 }
 
 function isAppInfo(value: unknown): value is AppInfo {
