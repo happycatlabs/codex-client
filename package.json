@@ -1,9 +1,19 @@
 {
   "name": "@ratley/codex-client",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Codex API client for orcastrator",
-  "module": "dist/index.js",
+  "license": "MIT",
+  "author": "ratley",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ratley/codex-client.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
   "main": "dist/index.js",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
@@ -11,21 +21,18 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "oxlint src/",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "test": "bun test",
+    "validate": "bun run format:check && bun run lint && bun run build && bun test"
   },
-  "files": [
-    "dist"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/ratley/codex-client.git"
-  },
-  "license": "MIT",
-  "author": "ratley",
   "devDependencies": {
     "@types/bun": "latest",
+    "oxfmt": "0.47.0",
+    "oxlint": "1.62.0",
     "typescript": "^5"
   },
   "peerDependencies": {

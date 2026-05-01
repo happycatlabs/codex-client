@@ -42,12 +42,8 @@ export class StdioTransport {
     this.process.exited
       .then((code) => {
         if (!this.closeInitiated) {
-          this.rejectAllPending(
-            new Error(`codex app-server exited unexpectedly with code ${code}`),
-          );
-          this.emitError(
-            new Error(`codex app-server exited unexpectedly with code ${code}`),
-          );
+          this.rejectAllPending(new Error(`codex app-server exited unexpectedly with code ${code}`));
+          this.emitError(new Error(`codex app-server exited unexpectedly with code ${code}`));
         }
       })
       .catch((error: unknown) => {
@@ -74,12 +70,8 @@ export class StdioTransport {
       stdio: ["pipe", "pipe", "pipe"],
     });
 
-    const stdout = child.stdout
-      ? (Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>)
-      : null;
-    const stderr = child.stderr
-      ? (Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>)
-      : null;
+    const stdout = child.stdout ? (Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>) : null;
+    const stderr = child.stderr ? (Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>) : null;
 
     const exited = new Promise<number>((resolve, reject) => {
       child.on("close", (code) => resolve(code ?? 0));
@@ -94,7 +86,13 @@ export class StdioTransport {
       stdout,
       stderr,
       exited,
-      kill: (signal?: string) => { if (signal) { child.kill(signal as Parameters<typeof child.kill>[0]); } else { child.kill(); } },
+      kill: (signal?: string) => {
+        if (signal) {
+          child.kill(signal as Parameters<typeof child.kill>[0]);
+        } else {
+          child.kill();
+        }
+      },
     });
   }
 
@@ -307,9 +305,7 @@ export function isJsonRpcRequest(message: JsonRpcMessage): message is JsonRpcReq
   return "id" in message && "method" in message;
 }
 
-export function isJsonRpcNotification(
-  message: JsonRpcMessage,
-): message is JsonRpcNotification {
+export function isJsonRpcNotification(message: JsonRpcMessage): message is JsonRpcNotification {
   return "method" in message && !("id" in message);
 }
 

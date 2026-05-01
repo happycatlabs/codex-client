@@ -177,24 +177,26 @@ describe("CodexClient unit", () => {
       ],
     });
 
-    expect(received).toEqual([{
-      requestId: "req-1",
-      itemId: "item-1",
-      threadId: "thread-1",
-      turnId: "turn-1",
-      questions: [
-        {
-          header: "Schema",
-          id: "clarification",
-          question: "Which migration should I use?",
-          isOther: true,
-          options: [
-            { label: "A", description: "Use migration A" },
-            { label: "B", description: "Use migration B" },
-          ],
-        },
-      ],
-    }]);
+    expect(received).toEqual([
+      {
+        requestId: "req-1",
+        itemId: "item-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        questions: [
+          {
+            header: "Schema",
+            id: "clarification",
+            question: "Which migration should I use?",
+            isOther: true,
+            options: [
+              { label: "A", description: "Use migration A" },
+              { label: "B", description: "Use migration B" },
+            ],
+          },
+        ],
+      },
+    ]);
 
     expect(transport.sent).toContainEqual({
       jsonrpc: "2.0",
@@ -405,12 +407,14 @@ describe("CodexClient unit", () => {
       capReached: false,
     });
 
-    expect(received).toEqual([{
-      processId: "proc-1",
-      stream: "stdout",
-      deltaBase64: "aGVsbG8=",
-      capReached: false,
-    }]);
+    expect(received).toEqual([
+      {
+        processId: "proc-1",
+        stream: "stdout",
+        deltaBase64: "aGVsbG8=",
+        capReached: false,
+      },
+    ]);
   });
 });
 

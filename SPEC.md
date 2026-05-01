@@ -21,7 +21,7 @@ Handles the raw JSON-RPC communication over stdio:
 ```ts
 export class StdioTransport {
   constructor(private process: ChildProcess);
-  
+
   send(message: JsonRpcMessage): void;
   onMessage(handler: (message: JsonRpcMessage) => void): void;
   close(): Promise<void>;
@@ -41,11 +41,11 @@ High-level API wrapping the transport:
 ```ts
 export class CodexClient extends EventEmitter {
   constructor(options?: CodexClientOptions);
-  
+
   // Lifecycle
-  async connect(): Promise<void>;  // spawns app-server, sends initialize + initialized
-  async disconnect(): Promise<void>;  // closes transport
-  
+  async connect(): Promise<void>; // spawns app-server, sends initialize + initialized
+  async disconnect(): Promise<void>; // closes transport
+
   // Threads
   async startThread(params: StartThreadParams): Promise<Thread>;
   async resumeThread(threadId: string, params?: ResumeThreadParams): Promise<Thread>;
@@ -54,18 +54,18 @@ export class CodexClient extends EventEmitter {
   async listThreads(params?: ListThreadsParams): Promise<ThreadListResult>;
   async archiveThread(threadId: string): Promise<void>;
   async compactThread(threadId: string): Promise<void>;
-  
+
   // Turns
   async startTurn(params: StartTurnParams): Promise<Turn>;
-  async steerTurn(params: SteerTurnParams): Promise<string>;  // returns turnId
+  async steerTurn(params: SteerTurnParams): Promise<string>; // returns turnId
   async interruptTurn(threadId: string, turnId: string): Promise<void>;
-  
+
   // Review
   async startReview(params: StartReviewParams): Promise<ReviewResult>;
-  
+
   // Models
   async listModels(params?: ListModelsParams): Promise<ModelListResult>;
-  
+
   // Command execution (sandboxed, no thread)
   async execCommand(params: ExecCommandParams): Promise<ExecCommandResult>;
 }
@@ -75,12 +75,12 @@ export class CodexClient extends EventEmitter {
 
 ```ts
 interface CodexClientOptions {
-  clientName?: string;       // default: "openclaw"
-  clientVersion?: string;    // default: "0.1.0"
-  model?: string;           // default: "gpt-5.3-codex"
-  cwd?: string;             // default: process.cwd()
-  approvalPolicy?: "never" | "unlessTrusted" | "always";  // default: "never"
-  sandbox?: string;         // default: "workspaceWrite"
+  clientName?: string; // default: "openclaw"
+  clientVersion?: string; // default: "0.1.0"
+  model?: string; // default: "gpt-5.3-codex"
+  cwd?: string; // default: process.cwd()
+  approvalPolicy?: "never" | "unlessTrusted" | "always"; // default: "never"
+  sandbox?: string; // default: "workspaceWrite"
   experimentalApi?: boolean; // default: true
 }
 ```
@@ -144,51 +144,150 @@ Define all the types from the protocol spec. Key ones:
 
 ```ts
 // JSON-RPC
-interface JsonRpcRequest { method: string; id: number; params?: unknown; }
-interface JsonRpcResponse { id: number; result?: unknown; error?: JsonRpcError; }
-interface JsonRpcNotification { method: string; params?: unknown; }
-interface JsonRpcError { code: number; message: string; }
+interface JsonRpcRequest {
+  method: string;
+  id: number;
+  params?: unknown;
+}
+interface JsonRpcResponse {
+  id: number;
+  result?: unknown;
+  error?: JsonRpcError;
+}
+interface JsonRpcNotification {
+  method: string;
+  params?: unknown;
+}
+interface JsonRpcError {
+  code: number;
+  message: string;
+}
 
 // Thread
-interface Thread { id: string; preview?: string; modelProvider?: string; createdAt?: number; updatedAt?: number; }
+interface Thread {
+  id: string;
+  preview?: string;
+  modelProvider?: string;
+  createdAt?: number;
+  updatedAt?: number;
+}
 
 // Turn
-interface Turn { id: string; status: "inProgress" | "completed" | "interrupted" | "failed"; items: ThreadItem[]; error?: TurnError; }
-interface TurnError { message: string; codexErrorInfo?: string; }
+interface Turn {
+  id: string;
+  status: "inProgress" | "completed" | "interrupted" | "failed";
+  items: ThreadItem[];
+  error?: TurnError;
+}
+interface TurnError {
+  message: string;
+  codexErrorInfo?: string;
+}
 
 // Items (simplified union)
-type ThreadItem = 
+type ThreadItem =
   | { type: "userMessage"; id: string; content: unknown[] }
   | { type: "agentMessage"; id: string; text: string }
-  | { type: "commandExecution"; id: string; command: string; cwd?: string; status: string; exitCode?: number; aggregatedOutput?: string }
+  | {
+      type: "commandExecution";
+      id: string;
+      command: string;
+      cwd?: string;
+      status: string;
+      exitCode?: number;
+      aggregatedOutput?: string;
+    }
   | { type: "fileChange"; id: string; changes: FileChange[]; status: string }
   | { type: "enteredReviewMode"; id: string; review: string }
   | { type: "exitedReviewMode"; id: string; review: string }
   | { type: "reasoning"; id: string; summary?: unknown; content?: unknown }
   | { type: "plan"; id: string; text: string }
-  | { type: string; id: string; [key: string]: unknown };  // catch-all
+  | { type: string; id: string; [key: string]: unknown }; // catch-all
 
-interface FileChange { path: string; kind: string; diff: string; }
+interface FileChange {
+  path: string;
+  kind: string;
+  diff: string;
+}
 
 // Params
-interface StartThreadParams { model?: string; cwd?: string; approvalPolicy?: string; sandbox?: string; personality?: string; }
-interface ResumeThreadParams { personality?: string; }
-interface StartTurnParams { threadId: string; input: TurnInput[]; cwd?: string; model?: string; effort?: string; approvalPolicy?: string; sandboxPolicy?: SandboxPolicy; }
-interface SteerTurnParams { threadId: string; input: TurnInput[]; expectedTurnId: string; }
-interface StartReviewParams { threadId: string; delivery?: "inline" | "detached"; target: ReviewTarget; }
+interface StartThreadParams {
+  model?: string;
+  cwd?: string;
+  approvalPolicy?: string;
+  sandbox?: string;
+  personality?: string;
+}
+interface ResumeThreadParams {
+  personality?: string;
+}
+interface StartTurnParams {
+  threadId: string;
+  input: TurnInput[];
+  cwd?: string;
+  model?: string;
+  effort?: string;
+  approvalPolicy?: string;
+  sandboxPolicy?: SandboxPolicy;
+}
+interface SteerTurnParams {
+  threadId: string;
+  input: TurnInput[];
+  expectedTurnId: string;
+}
+interface StartReviewParams {
+  threadId: string;
+  delivery?: "inline" | "detached";
+  target: ReviewTarget;
+}
 
-type TurnInput = { type: "text"; text: string } | { type: "image"; url: string } | { type: "localImage"; path: string } | { type: "skill"; name: string; path: string };
-type ReviewTarget = { type: "uncommittedChanges" } | { type: "baseBranch" } | { type: "commit"; sha: string; title?: string } | { type: "custom" };
+type TurnInput =
+  | { type: "text"; text: string }
+  | { type: "image"; url: string }
+  | { type: "localImage"; path: string }
+  | { type: "skill"; name: string; path: string };
+type ReviewTarget =
+  | { type: "uncommittedChanges" }
+  | { type: "baseBranch" }
+  | { type: "commit"; sha: string; title?: string }
+  | { type: "custom" };
 
-interface SandboxPolicy { type: string; writableRoots?: string[]; networkAccess?: boolean; }
+interface SandboxPolicy {
+  type: string;
+  writableRoots?: string[];
+  networkAccess?: boolean;
+}
 
 // Results
-interface CompletedTurn { turn: Turn; items: ThreadItem[]; agentMessage: string; diff?: string; }
-interface CompletedReview { turn: Turn; reviewText: string; }
-interface ModelListResult { data: ModelInfo[]; nextCursor?: string | null; }
-interface ModelInfo { id: string; model: string; displayName: string; isDefault?: boolean; }
-interface ThreadListResult { data: Thread[]; nextCursor?: string | null; }
-interface ExecCommandResult { exitCode: number; stdout: string; stderr: string; }
+interface CompletedTurn {
+  turn: Turn;
+  items: ThreadItem[];
+  agentMessage: string;
+  diff?: string;
+}
+interface CompletedReview {
+  turn: Turn;
+  reviewText: string;
+}
+interface ModelListResult {
+  data: ModelInfo[];
+  nextCursor?: string | null;
+}
+interface ModelInfo {
+  id: string;
+  model: string;
+  displayName: string;
+  isDefault?: boolean;
+}
+interface ThreadListResult {
+  data: Thread[];
+  nextCursor?: string | null;
+}
+interface ExecCommandResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
 ```
 
 ## Request ID Management
