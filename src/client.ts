@@ -1,5 +1,5 @@
-import { EventEmitter } from "node:events";
-import { StdioTransport, isJsonRpcNotification, isJsonRpcRequest } from "./transport.js";
+import { SimpleEventEmitter } from "./emitter.js";
+import { StdioTransport, isJsonRpcNotification, isJsonRpcRequest, type TransportLike } from "./transport.js";
 import type {
   AgentMessageDeltaNotification,
   AppInfo,
@@ -67,16 +67,6 @@ import type {
 
 const TURN_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = 30 * 1000;
-const DEFAULT_COMMAND_SHELL = process.env.SHELL ?? "/bin/sh";
-
-interface TransportLike {
-  send(message: JsonRpcMessage): void;
-  request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>;
-  onMessage(handler: (message: JsonRpcMessage) => void): () => void;
-  onError(handler: (error: Error) => void): () => void;
-  onStderr?(handler: (line: string) => void): () => void;
-  close(): Promise<void>;
-}
 
 interface CodexClientInternalOptions extends CodexClientOptions {
   transportFactory?: (cwd: string) => TransportLike;
@@ -87,7 +77,7 @@ const DEFAULT_OPTIONS: Required<CodexClientOptions> = {
   clientTitle: "OpenClaw",
   clientVersion: "0.1.0",
   model: "gpt-5.3-codex",
-  cwd: process.cwd(),
+  cwd: getDefaultCwd(),
   approvalPolicy: "never",
   sandbox: "workspace-write",
   experimentalApi: true,
@@ -95,7 +85,7 @@ const DEFAULT_OPTIONS: Required<CodexClientOptions> = {
   codexPath: "codex",
 };
 
-export class CodexClient extends EventEmitter {
+export class CodexClient extends SimpleEventEmitter {
   private transport: TransportLike | null = null;
   private readonly options: Required<CodexClientOptions>;
   private readonly transportFactory: (cwd: string) => TransportLike;
@@ -807,7 +797,23 @@ function normalizeExecCommand(command: string | string[]): string[] {
     return command;
   }
 
-  return [DEFAULT_COMMAND_SHELL, "-lc", command];
+  return [getDefaultShell(), "-lc", command];
+}
+
+function getDefaultCwd(): string {
+  return getRuntimeProcess()?.cwd?.() ?? ".";
+}
+
+function getDefaultShell(): string {
+  return getRuntimeProcess()?.env?.SHELL ?? "/bin/sh";
+}
+
+function getRuntimeProcess(): { cwd?: () => string; env?: Record<string, string | undefined> } | undefined {
+  return (
+    globalThis as typeof globalThis & {
+      process?: { cwd?: () => string; env?: Record<string, string | undefined> };
+    }
+  ).process;
 }
 
 function extractThread(result: unknown): Thread {

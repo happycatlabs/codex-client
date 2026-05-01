@@ -1,5 +1,3 @@
-import { spawn as nodeSpawn } from "node:child_process";
-import { Readable } from "node:stream";
 import type {
   JsonRpcError,
   JsonRpcMessage,
@@ -8,6 +6,15 @@ import type {
   JsonRpcResponse,
   RequestId,
 } from "./types.js";
+
+export interface TransportLike {
+  send(message: JsonRpcMessage): void;
+  request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>;
+  onMessage(handler: (message: JsonRpcMessage) => void): () => void;
+  onError(handler: (error: Error) => void): () => void;
+  onStderr?(handler: (line: string) => void): () => void;
+  close(): Promise<void>;
+}
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -54,7 +61,6 @@ export class StdioTransport {
   }
 
   static spawn(cwd: string, codexPath = "codex"): StdioTransport {
-    // Use Bun.spawn when running under Bun, Node child_process otherwise
     if (typeof globalThis.Bun !== "undefined") {
       const child = globalThis.Bun.spawn([codexPath, "app-server"], {
         cwd,
@@ -65,35 +71,7 @@ export class StdioTransport {
       return new StdioTransport(child as unknown as StdioProcess);
     }
 
-    const child = nodeSpawn(codexPath, ["app-server"], {
-      cwd,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    const stdout = child.stdout ? (Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>) : null;
-    const stderr = child.stderr ? (Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>) : null;
-
-    const exited = new Promise<number>((resolve, reject) => {
-      child.on("close", (code) => resolve(code ?? 0));
-      child.on("error", reject);
-    });
-
-    return new StdioTransport({
-      stdin: {
-        write: (data: string) => child.stdin?.write(data),
-        end: () => child.stdin?.end(),
-      },
-      stdout,
-      stderr,
-      exited,
-      kill: (signal?: string) => {
-        if (signal) {
-          child.kill(signal as Parameters<typeof child.kill>[0]);
-        } else {
-          child.kill();
-        }
-      },
-    });
+    throw new Error("StdioTransport.spawn requires Bun. React Native clients should use WebSocketTransport.");
   }
 
   send(message: JsonRpcMessage): void {
@@ -297,7 +275,7 @@ export class StdioTransport {
   }
 }
 
-function isJsonRpcResponse(message: JsonRpcMessage): message is JsonRpcResponse {
+export function isJsonRpcResponse(message: JsonRpcMessage): message is JsonRpcResponse {
   return "id" in message && !("method" in message);
 }
 
@@ -309,11 +287,11 @@ export function isJsonRpcNotification(message: JsonRpcMessage): message is JsonR
   return "method" in message && !("id" in message);
 }
 
-function formatJsonRpcError(error: JsonRpcError): string {
+export function formatJsonRpcError(error: JsonRpcError): string {
   return `${error.code}: ${error.message}`;
 }
 
-function toError(error: unknown): Error {
+export function toError(error: unknown): Error {
   if (error instanceof Error) {
     return error;
   }
