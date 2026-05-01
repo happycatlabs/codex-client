@@ -30,6 +30,22 @@ export interface StdioProcess {
   kill(signal?: string): unknown;
 }
 
+type BunRuntime = {
+  spawn: (
+    args: string[],
+    options: {
+      cwd: string;
+      stderr: "pipe";
+      stdin: "pipe";
+      stdout: "pipe";
+    },
+  ) => unknown;
+};
+
+type GlobalWithBun = typeof globalThis & {
+  Bun?: BunRuntime;
+};
+
 export class StdioTransport {
   private readonly messageHandlers = new Set<(message: JsonRpcMessage) => void>();
   private readonly errorHandlers = new Set<(error: Error) => void>();
@@ -61,8 +77,10 @@ export class StdioTransport {
   }
 
   static spawn(cwd: string, codexPath = "codex"): StdioTransport {
-    if (typeof globalThis.Bun !== "undefined") {
-      const child = globalThis.Bun.spawn([codexPath, "app-server"], {
+    const bun = (globalThis as GlobalWithBun).Bun;
+
+    if (bun) {
+      const child = bun.spawn([codexPath, "app-server"], {
         cwd,
         stdin: "pipe",
         stdout: "pipe",
