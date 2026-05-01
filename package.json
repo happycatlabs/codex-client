@@ -1,12 +1,12 @@
 {
   "name": "@ratley/codex-client",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Codex API client for orcastrator",
   "license": "MIT",
   "author": "ratley",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ratley/codex-client.git"
+    "url": "https://github.com/happycatlabs/codex-client.git"
   },
   "files": [
     "dist"
@@ -21,11 +21,15 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "lint": "oxlint src/",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
+    "prepare": "bun run build",
     "test": "bun test",
     "validate": "bun run format:check && bun run lint && bun run build && bun test"
   },

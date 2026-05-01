@@ -80,7 +80,7 @@ export class WebSocketTransport implements TransportLike {
       void this.handleMessage(event.data);
     });
     this.socket.addEventListener("error", (event) => {
-      const error = event instanceof Error ? event : new Error("websocket transport error");
+      const error = event instanceof Error ? event : new Error(formatWebSocketErrorEvent(event));
       this.rejectReady?.(error);
       this.emitError(error);
     });
@@ -274,4 +274,25 @@ async function messageDataToString(data: unknown): Promise<string> {
 function formatCloseMessage(code?: number, reason?: string): string {
   const suffix = reason ? `: ${reason}` : "";
   return `websocket closed${code ? ` (${code})` : ""}${suffix}`;
+}
+
+function formatWebSocketErrorEvent(event: unknown): string {
+  if (isObject(event)) {
+    const message = getString(event, "message") ?? getString(event, "error") ?? getString(event, "type");
+
+    if (message) {
+      return `websocket transport error: ${message}`;
+    }
+  }
+
+  return "websocket transport error";
+}
+
+function getString(value: Record<string, unknown>, key: string): string | undefined {
+  const entry = value[key];
+  return typeof entry === "string" ? entry : undefined;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
