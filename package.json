@@ -1,9 +1,9 @@
 {
-  "name": "@ratley/codex-client",
-  "version": "0.1.8",
+  "name": "@happycatlabs/codex-client",
+  "version": "0.1.9",
   "description": "Codex API client for orcastrator",
   "license": "MIT",
-  "author": "ratley",
+  "author": "HappyCat Labs",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/happycatlabs/codex-client.git"
