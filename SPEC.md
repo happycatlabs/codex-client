@@ -90,21 +90,31 @@ interface CodexClientOptions {
 ```ts
 // Turn lifecycle
 client.on("turn:started", (turn: Turn) => {});
+client.on("turn:started:notification", (notification: TurnStartedNotification) => {});
 client.on("turn:completed", (turn: Turn) => {});
+client.on("turn:completed:notification", (notification: TurnCompletedNotification) => {});
 
 // Item lifecycle
 client.on("item:started", (item: ThreadItem) => {});
+client.on("item:started:notification", (notification: ItemNotification) => {});
 client.on("item:completed", (item: ThreadItem) => {});
+client.on("item:completed:notification", (notification: ItemNotification) => {});
 
 // Streaming
-client.on("item:agentMessage:delta", (delta: { itemId: string; text: string }) => {});
-client.on("item:commandExecution:outputDelta", (delta: { itemId: string; output: string }) => {});
+client.on("item:agentMessage:delta", (delta: { itemId: string; delta: string }) => {});
+client.on("item:agentMessage:delta:notification", (notification: AgentMessageDeltaNotification) => {});
+client.on("item:commandExecution:outputDelta", (delta: { itemId: string; delta: string }) => {});
+client.on("item:commandExecution:outputDelta:notification", (notification: CommandOutputDeltaNotification) => {});
 
 // Diff
 client.on("turn:diff:updated", (data: { threadId: string; turnId: string; diff: string }) => {});
+client.on("turn:diff:updated:notification", (notification: DiffUpdatedNotification) => {});
 
 // Plan
-client.on("turn:plan:updated", (data: { turnId: string; plan: PlanEntry[] }) => {});
+client.on("turn:plan:updated", (data: { threadId?: string; turnId: string; plan: PlanEntry[] }) => {});
+client.on("turn:plan:updated:notification", (notification: PlanUpdatedNotification) => {});
+client.on("turn:plan:delta", (notification: PlanDeltaNotification) => {});
+client.on("turn:plan:delta:notification", (notification: PlanDeltaNotification) => {});
 
 // Thread
 client.on("thread:started", (thread: Thread) => {});

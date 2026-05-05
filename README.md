@@ -59,18 +59,28 @@ await client.disconnect();
 
 ## Events
 
-| Event                               | Payload                                              | Description                                         |
-| ----------------------------------- | ---------------------------------------------------- | --------------------------------------------------- |
-| `turn:started`                      | `Turn`                                               | A new turn began                                    |
-| `turn:completed`                    | `Turn`                                               | A turn finished (check `turn.status`)               |
-| `item:started`                      | `ThreadItem`                                         | An item (message, command, file change, etc.) began |
-| `item:completed`                    | `ThreadItem`                                         | An item finished                                    |
-| `item:agentMessage:delta`           | `{ itemId: string; text: string }`                   | Streaming text chunk from the agent                 |
-| `item:commandExecution:outputDelta` | `{ itemId: string; output: string }`                 | Streaming output from a command                     |
-| `turn:diff:updated`                 | `{ threadId: string; turnId: string; diff: string }` | Cumulative diff for the current turn                |
-| `turn:plan:updated`                 | `{ turnId: string; plan: PlanEntry[] }`              | Agent plan updated                                  |
-| `thread:started`                    | `Thread`                                             | A new thread was created                            |
-| `error`                             | `Error`                                              | Transport-level error (process crash, etc.)         |
+| Event                                            | Payload                                                    | Description                                               |
+| ------------------------------------------------ | ---------------------------------------------------------- | --------------------------------------------------------- |
+| `turn:started`                                   | `Turn`                                                     | A new turn began                                          |
+| `turn:started:notification`                      | `TurnStartedNotification`                                  | A new turn began, including thread context                |
+| `turn:completed`                                 | `Turn`                                                     | A turn finished (check `turn.status`)                     |
+| `turn:completed:notification`                    | `TurnCompletedNotification`                                | A turn finished, including thread context                 |
+| `item:started`                                   | `ThreadItem`                                               | An item (message, command, file change, etc.) began       |
+| `item:started:notification`                      | `ItemNotification`                                         | An item began, including thread and turn context          |
+| `item:completed`                                 | `ThreadItem`                                               | An item finished                                          |
+| `item:completed:notification`                    | `ItemNotification`                                         | An item finished, including thread and turn context       |
+| `item:agentMessage:delta`                        | `{ itemId: string; delta: string }`                        | Streaming text chunk from the agent                       |
+| `item:agentMessage:delta:notification`           | `AgentMessageDeltaNotification`                            | Streaming text chunk with thread and turn context         |
+| `item:commandExecution:outputDelta`              | `{ itemId: string; delta: string }`                        | Streaming output from a command                           |
+| `item:commandExecution:outputDelta:notification` | `CommandOutputDeltaNotification`                           | Streaming command output with thread and turn context     |
+| `turn:diff:updated`                              | `{ threadId: string; turnId: string; diff: string }`       | Cumulative diff for the current turn                      |
+| `turn:diff:updated:notification`                 | `DiffUpdatedNotification`                                  | Cumulative diff notification                              |
+| `turn:plan:updated`                              | `{ threadId?: string; turnId: string; plan: PlanEntry[] }` | Agent plan updated                                        |
+| `turn:plan:updated:notification`                 | `PlanUpdatedNotification`                                  | Agent plan update notification                            |
+| `turn:plan:delta`                                | `PlanDeltaNotification`                                    | Streaming plan text delta                                 |
+| `turn:plan:delta:notification`                   | `PlanDeltaNotification`                                    | Streaming plan text delta notification                    |
+| `thread:started`                                 | `Thread`                                                   | A new thread was created                                  |
+| `error`                                          | `Error`                                                    | Transport-level error (process crash, socket close, etc.) |
 
 ## CodexClientOptions
 

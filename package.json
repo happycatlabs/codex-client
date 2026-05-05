@@ -1,6 +1,6 @@
 {
   "name": "@ratley/codex-client",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Codex API client for orcastrator",
   "license": "MIT",
   "author": "ratley",

@@ -577,6 +577,7 @@ export class CodexClient extends SimpleEventEmitter {
         const data = asTurnNotification(params);
         if (!data) return;
         this.emit("turn:started", data.turn);
+        this.emit("turn:started:notification", data);
         break;
       }
       case "turn/completed": {
@@ -584,6 +585,7 @@ export class CodexClient extends SimpleEventEmitter {
         if (!data) return;
         this.completedTurns.set(data.turn.id, data.turn);
         this.emit("turn:completed", data.turn);
+        this.emit("turn:completed:notification", data);
         this.emit("_internal:turnCompleted", data);
         break;
       }
@@ -591,12 +593,14 @@ export class CodexClient extends SimpleEventEmitter {
         const data = asItemNotification(params);
         if (!data) return;
         this.emit("item:started", data.item);
+        this.emit("item:started:notification", data);
         break;
       }
       case "item/completed": {
         const data = asItemNotification(params);
         if (!data) return;
         this.emit("item:completed", data.item);
+        this.emit("item:completed:notification", data);
         this.emit("_internal:itemCompleted", data);
         break;
       }
@@ -607,6 +611,7 @@ export class CodexClient extends SimpleEventEmitter {
           itemId: data.itemId,
           delta: data.delta,
         });
+        this.emit("item:agentMessage:delta:notification", data);
         this.emit("_internal:agentDelta", data);
         break;
       }
@@ -617,6 +622,7 @@ export class CodexClient extends SimpleEventEmitter {
           itemId: data.itemId,
           delta: data.delta,
         });
+        this.emit("item:commandExecution:outputDelta:notification", data);
         break;
       }
       case "command/exec/outputDelta": {
@@ -629,6 +635,7 @@ export class CodexClient extends SimpleEventEmitter {
         const data = asDiffUpdatedNotification(params);
         if (!data) return;
         this.emit("turn:diff:updated", data);
+        this.emit("turn:diff:updated:notification", data);
         this.emit("_internal:turnDiff", data);
         break;
       }
@@ -636,12 +643,14 @@ export class CodexClient extends SimpleEventEmitter {
         const data = asPlanUpdatedNotification(params);
         if (!data) return;
         this.emit("turn:plan:updated", data);
+        this.emit("turn:plan:updated:notification", data);
         break;
       }
       case "turn/plan/delta": {
         const data = asPlanDeltaNotification(params);
         if (!data) return;
         this.emit("turn:plan:delta", data);
+        this.emit("turn:plan:delta:notification", data);
         break;
       }
       case "thread/started": {

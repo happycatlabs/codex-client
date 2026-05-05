@@ -296,6 +296,95 @@ describe("CodexClient unit", () => {
     expect(completed.agentMessage).toBe("hello world");
   });
 
+  test("emits context-rich turn and item notification events alongside legacy payloads", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    const legacyItems: unknown[] = [];
+    const itemNotifications: unknown[] = [];
+    const turnNotifications: unknown[] = [];
+
+    client.on("item:completed", (item) => {
+      legacyItems.push(item);
+    });
+    client.on("item:completed:notification", (payload) => {
+      itemNotifications.push(payload);
+    });
+    client.on("turn:completed:notification", (payload) => {
+      turnNotifications.push(payload);
+    });
+
+    const item: ThreadItem = {
+      type: "agentMessage",
+      id: "item-1",
+      text: "hello",
+    };
+    const turn: Turn = { id: "turn-1", status: "completed", items: [item] };
+
+    transport.emitNotification("item/completed", {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      item,
+    });
+    transport.emitNotification("turn/completed", {
+      threadId: "thread-1",
+      turn,
+    });
+
+    expect(legacyItems).toEqual([item]);
+    expect(itemNotifications).toEqual([
+      {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        item,
+      },
+    ]);
+    expect(turnNotifications).toEqual([
+      {
+        threadId: "thread-1",
+        turn,
+      },
+    ]);
+  });
+
+  test("emits context-rich command output delta notifications", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    const legacyDeltas: unknown[] = [];
+    const notificationDeltas: unknown[] = [];
+
+    client.on("item:commandExecution:outputDelta", (payload) => {
+      legacyDeltas.push(payload);
+    });
+    client.on("item:commandExecution:outputDelta:notification", (payload) => {
+      notificationDeltas.push(payload);
+    });
+
+    transport.emitNotification("item/commandExecution/outputDelta", {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      itemId: "command-1",
+      delta: "output",
+    });
+
+    expect(legacyDeltas).toEqual([{ itemId: "command-1", delta: "output" }]);
+    expect(notificationDeltas).toEqual([
+      {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "command-1",
+        delta: "output",
+      },
+    ]);
+  });
+
   test("steerTurn", async () => {
     const transport = new MockTransport();
     transport.setResponder("initialize", () => ({}));
