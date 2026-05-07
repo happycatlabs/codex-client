@@ -6,7 +6,11 @@ import type {
   AppListParams,
   AppListResult,
   AppListUpdatedNotification,
+  CodexClientEventMap,
   CodexClientOptions,
+  CodexClientRequestMap,
+  CodexClientRequestParams,
+  CodexClientRequestResult,
   CollaborationModeListResult,
   CommandExecOutputDeltaNotification,
   CommandExecResizeParams,
@@ -55,6 +59,8 @@ import type {
   ThreadListResult,
   ThreadLoadedListResult,
   ThreadNameUpdatedNotification,
+  ThreadTurnsListParams,
+  ThreadTurnsListResult,
   ThreadStartedNotification,
   ThreadStatusChangedNotification,
   ThreadUnsubscribeResult,
@@ -85,7 +91,7 @@ const DEFAULT_OPTIONS: Required<CodexClientOptions> = {
   codexPath: "codex",
 };
 
-export class CodexClient extends SimpleEventEmitter {
+export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
   private transport: TransportLike | null = null;
   private readonly options: Required<CodexClientOptions>;
   private readonly transportFactory: (cwd: string) => TransportLike;
@@ -183,6 +189,12 @@ export class CodexClient extends SimpleEventEmitter {
     await current.close();
   }
 
+  async request<Method extends keyof CodexClientRequestMap>(
+    method: Method,
+    params: CodexClientRequestParams<Method>,
+    timeoutMs?: number,
+  ): Promise<CodexClientRequestResult<Method>>;
+  async request<T = unknown>(method: string, params?: unknown, timeoutMs?: number): Promise<T>;
   async request<T = unknown>(method: string, params?: unknown, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
     const transport = this.ensureConnected();
     return (await transport.request(method, params, timeoutMs)) as T;
@@ -246,7 +258,8 @@ export class CodexClient extends SimpleEventEmitter {
       ...(params.baseInstructions !== undefined ? { baseInstructions: params.baseInstructions } : {}),
       ...(params.developerInstructions !== undefined ? { developerInstructions: params.developerInstructions } : {}),
       ...(params.personality !== undefined ? { personality: params.personality } : {}),
-      persistExtendedHistory: params.persistExtendedHistory ?? false,
+      ...(params.excludeTurns !== undefined ? { excludeTurns: params.excludeTurns } : {}),
+      ...(params.persistExtendedHistory !== undefined ? { persistExtendedHistory: params.persistExtendedHistory } : {}),
     });
 
     return extractThread(result);
@@ -266,7 +279,8 @@ export class CodexClient extends SimpleEventEmitter {
       ...(params.baseInstructions !== undefined ? { baseInstructions: params.baseInstructions } : {}),
       ...(params.developerInstructions !== undefined ? { developerInstructions: params.developerInstructions } : {}),
       ...(params.ephemeral !== undefined ? { ephemeral: params.ephemeral } : {}),
-      persistExtendedHistory: params.persistExtendedHistory ?? false,
+      ...(params.excludeTurns !== undefined ? { excludeTurns: params.excludeTurns } : {}),
+      ...(params.persistExtendedHistory !== undefined ? { persistExtendedHistory: params.persistExtendedHistory } : {}),
     });
 
     return extractThread(result);
@@ -289,6 +303,11 @@ export class CodexClient extends SimpleEventEmitter {
   async listLoadedThreads(params: ListLoadedThreadsParams = {}): Promise<ThreadLoadedListResult> {
     const result = await this.request("thread/loaded/list", params);
     return extractLoadedThreadList(result);
+  }
+
+  async listThreadTurns(params: ThreadTurnsListParams): Promise<ThreadTurnsListResult> {
+    const result = await this.request("thread/turns/list", params);
+    return extractThreadTurnsList(result);
   }
 
   async archiveThread(threadId: string): Promise<void> {
@@ -324,7 +343,7 @@ export class CodexClient extends SimpleEventEmitter {
   }
 
   async steerTurn(params: SteerTurnParams): Promise<string> {
-    const result = await this.request("turn/steer", params, TURN_TIMEOUT_MS);
+    const result = await this.request<unknown>("turn/steer", params, TURN_TIMEOUT_MS);
 
     if (isObject(result) && typeof result.turnId === "string") {
       return result.turnId;
@@ -854,6 +873,9 @@ function extractThreadList(result: unknown): ThreadListResult {
     return {
       data: result.data.filter(isThread),
       ...(typeof result.nextCursor === "string" || result.nextCursor === null ? { nextCursor: result.nextCursor } : {}),
+      ...(typeof result.backwardsCursor === "string" || result.backwardsCursor === null
+        ? { backwardsCursor: result.backwardsCursor }
+        : {}),
     };
   }
 
@@ -869,6 +891,20 @@ function extractLoadedThreadList(result: unknown): ThreadLoadedListResult {
   }
 
   throw new Error("Invalid loaded thread list response");
+}
+
+function extractThreadTurnsList(result: unknown): ThreadTurnsListResult {
+  if (isObject(result) && Array.isArray(result.data)) {
+    return {
+      data: result.data.filter(isTurn),
+      ...(typeof result.nextCursor === "string" || result.nextCursor === null ? { nextCursor: result.nextCursor } : {}),
+      ...(typeof result.backwardsCursor === "string" || result.backwardsCursor === null
+        ? { backwardsCursor: result.backwardsCursor }
+        : {}),
+    };
+  }
+
+  throw new Error("Invalid thread turns list response");
 }
 
 function extractModelList(result: unknown): ModelListResult {
@@ -1146,7 +1182,7 @@ function asThreadStartedNotification(params: unknown): ThreadStartedNotification
 }
 
 function asThreadStatusChangedNotification(params: unknown): ThreadStatusChangedNotification | null {
-  if (isObject(params) && typeof params.threadId === "string" && typeof params.status === "string") {
+  if (isObject(params) && typeof params.threadId === "string" && isThreadStatus(params.status)) {
     return {
       threadId: params.threadId,
       status: params.status,
@@ -1276,6 +1312,18 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function isThread(value: unknown): value is Thread {
   return isObject(value) && typeof value.id === "string";
+}
+
+function isThreadStatus(value: unknown): value is ThreadStatusChangedNotification["status"] {
+  if (!isObject(value) || typeof value.type !== "string") {
+    return false;
+  }
+
+  if (value.type === "notLoaded" || value.type === "idle" || value.type === "systemError") {
+    return true;
+  }
+
+  return value.type === "active" && Array.isArray(value.activeFlags);
 }
 
 function isTurn(value: unknown): value is Turn {

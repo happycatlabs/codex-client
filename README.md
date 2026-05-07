@@ -2,6 +2,12 @@
 
 TypeScript client for the [Codex App Server](https://developers.openai.com/codex/app-server/) stdio JSON-RPC protocol.
 
+Protocol types are kept aligned with the official app-server docs and the installed Codex CLI schema generator:
+
+```sh
+codex app-server generate-ts --out ./schemas
+```
+
 ## Install
 
 ```sh
@@ -37,25 +43,26 @@ await client.disconnect();
 
 ## API Reference
 
-| Method                                | Description                                                     | Key Params                                   | Return Type                  |
-| ------------------------------------- | --------------------------------------------------------------- | -------------------------------------------- | ---------------------------- |
-| `connect()`                           | Spawn the app-server and complete the initialize handshake      | —                                            | `Promise<void>`              |
-| `disconnect()`                        | Close the transport and kill the app-server process             | —                                            | `Promise<void>`              |
-| `startThread(params)`                 | Create a new thread                                             | `StartThreadParams`                          | `Promise<Thread>`            |
-| `resumeThread(threadId, params?)`     | Resume an existing thread                                       | `threadId: string`, `ResumeThreadParams?`    | `Promise<Thread>`            |
-| `forkThread(threadId)`                | Fork a thread into a new copy                                   | `threadId: string`                           | `Promise<Thread>`            |
-| `readThread(threadId, includeTurns?)` | Read thread metadata (optionally with turn history)             | `threadId: string`, `includeTurns?: boolean` | `Promise<Thread>`            |
-| `listThreads(params?)`                | List threads with optional cursor pagination                    | `ListThreadsParams?`                         | `Promise<ThreadListResult>`  |
-| `archiveThread(threadId)`             | Archive a thread                                                | `threadId: string`                           | `Promise<void>`              |
-| `compactThread(threadId)`             | Compact a thread's history                                      | `threadId: string`                           | `Promise<void>`              |
-| `startTurn(params)`                   | Start a turn and return immediately (non-blocking)              | `StartTurnParams`                            | `Promise<Turn>`              |
-| `runTurn(params)`                     | Start a turn and wait for full completion, collecting all items | `StartTurnParams`                            | `Promise<CompletedTurn>`     |
-| `steerTurn(params)`                   | Steer an in-progress turn with new input                        | `SteerTurnParams`                            | `Promise<string>` (turnId)   |
-| `interruptTurn(threadId, turnId)`     | Interrupt an in-progress turn                                   | `threadId: string`, `turnId: string`         | `Promise<void>`              |
-| `startReview(params)`                 | Start a code review turn                                        | `StartReviewParams`                          | `Promise<ReviewResult>`      |
-| `runReview(params)`                   | Start a review and wait for completion                          | `StartReviewParams`                          | `Promise<CompletedReview>`   |
-| `listModels(params?)`                 | List available models                                           | `ListModelsParams?`                          | `Promise<ModelListResult>`   |
-| `execCommand(params)`                 | Execute a sandboxed shell command (no thread)                   | `ExecCommandParams`                          | `Promise<ExecCommandResult>` |
+| Method                                | Description                                                     | Key Params                                   | Return Type                      |
+| ------------------------------------- | --------------------------------------------------------------- | -------------------------------------------- | -------------------------------- |
+| `connect()`                           | Spawn the app-server and complete the initialize handshake      | —                                            | `Promise<void>`                  |
+| `disconnect()`                        | Close the transport and kill the app-server process             | —                                            | `Promise<void>`                  |
+| `startThread(params)`                 | Create a new thread                                             | `StartThreadParams`                          | `Promise<Thread>`                |
+| `resumeThread(threadId, params?)`     | Resume an existing thread                                       | `threadId: string`, `ResumeThreadParams?`    | `Promise<Thread>`                |
+| `forkThread(threadId)`                | Fork a thread into a new copy                                   | `threadId: string`                           | `Promise<Thread>`                |
+| `readThread(threadId, includeTurns?)` | Read thread metadata (optionally with turn history)             | `threadId: string`, `includeTurns?: boolean` | `Promise<Thread>`                |
+| `listThreads(params?)`                | List threads with optional cursor pagination                    | `ListThreadsParams?`                         | `Promise<ThreadListResult>`      |
+| `listThreadTurns(params)`             | Page through stored turn history without resuming a thread      | `ThreadTurnsListParams`                      | `Promise<ThreadTurnsListResult>` |
+| `archiveThread(threadId)`             | Archive a thread                                                | `threadId: string`                           | `Promise<void>`                  |
+| `compactThread(threadId)`             | Compact a thread's history                                      | `threadId: string`                           | `Promise<void>`                  |
+| `startTurn(params)`                   | Start a turn and return immediately (non-blocking)              | `StartTurnParams`                            | `Promise<Turn>`                  |
+| `runTurn(params)`                     | Start a turn and wait for full completion, collecting all items | `StartTurnParams`                            | `Promise<CompletedTurn>`         |
+| `steerTurn(params)`                   | Steer an in-progress turn with new input                        | `SteerTurnParams`                            | `Promise<string>` (turnId)       |
+| `interruptTurn(threadId, turnId)`     | Interrupt an in-progress turn                                   | `threadId: string`, `turnId: string`         | `Promise<void>`                  |
+| `startReview(params)`                 | Start a code review turn                                        | `StartReviewParams`                          | `Promise<ReviewResult>`          |
+| `runReview(params)`                   | Start a review and wait for completion                          | `StartReviewParams`                          | `Promise<CompletedReview>`       |
+| `listModels(params?)`                 | List available models                                           | `ListModelsParams?`                          | `Promise<ModelListResult>`       |
+| `execCommand(params)`                 | Execute a sandboxed shell command (no thread)                   | `ExecCommandParams`                          | `Promise<ExecCommandResult>`     |
 
 ## Events
 
@@ -80,6 +87,7 @@ await client.disconnect();
 | `turn:plan:delta`                                | `PlanDeltaNotification`                                    | Streaming plan text delta                                 |
 | `turn:plan:delta:notification`                   | `PlanDeltaNotification`                                    | Streaming plan text delta notification                    |
 | `thread:started`                                 | `Thread`                                                   | A new thread was created                                  |
+| `thread:status:changed`                          | `ThreadStatusChangedNotification`                          | Loaded thread runtime status changed                      |
 | `error`                                          | `Error`                                                    | Transport-level error (process crash, socket close, etc.) |
 
 ## CodexClientOptions

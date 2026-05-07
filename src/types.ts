@@ -34,11 +34,17 @@ export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "
 export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access" | string;
 export type ApprovalPolicy = string | { reject: Record<string, boolean> };
 export type Personality = "friendly" | "pragmatic" | "none" | string;
-export type ThreadStatus = "notLoaded" | "loading" | "ready" | "running" | "failed" | "closed" | string;
+export type ThreadActiveFlag = "waitingOnApproval" | "waitingOnUserInput";
+export type ThreadStatus =
+  | { type: "notLoaded" }
+  | { type: "idle" }
+  | { type: "systemError" }
+  | { type: "active"; activeFlags: ThreadActiveFlag[] };
 export type TurnStatus = "inProgress" | "completed" | "interrupted" | "failed";
 export type WriteStatus = "ok" | "okOverridden";
 export type ThreadUnsubscribeStatus = "notLoaded" | "notSubscribed" | "unsubscribed";
 export type CommandExecOutputStream = "stdout" | "stderr";
+export type SortDirection = "asc" | "desc";
 
 export interface TurnError {
   message: string;
@@ -92,6 +98,7 @@ export interface GitInfo {
 
 export interface Thread {
   id: string;
+  forkedFromId?: string | null;
   preview?: string;
   ephemeral?: boolean;
   modelProvider?: string;
@@ -188,6 +195,7 @@ export interface ResumeThreadParams {
   baseInstructions?: string | null;
   developerInstructions?: string | null;
   personality?: Personality | null;
+  excludeTurns?: boolean;
   persistExtendedHistory?: boolean;
 }
 
@@ -203,7 +211,16 @@ export interface ForkThreadParams {
   baseInstructions?: string | null;
   developerInstructions?: string | null;
   ephemeral?: boolean;
+  excludeTurns?: boolean;
   persistExtendedHistory?: boolean;
+}
+
+export interface ThreadResumeParams extends ResumeThreadParams {
+  threadId: string;
+}
+
+export interface ThreadForkParams extends ForkThreadParams {
+  threadId: string;
 }
 
 export interface ListThreadsParams {
@@ -220,6 +237,13 @@ export interface ListThreadsParams {
 export interface ListLoadedThreadsParams {
   cursor?: string | null;
   limit?: number | null;
+}
+
+export interface ThreadTurnsListParams {
+  threadId: string;
+  cursor?: string | null;
+  limit?: number | null;
+  sortDirection?: SortDirection | null;
 }
 
 export interface StartTurnParams {
@@ -446,12 +470,36 @@ export interface AppListResult {
 export interface ThreadListResult {
   data: Thread[];
   nextCursor?: string | null;
+  backwardsCursor?: string | null;
 }
 
 export interface ThreadLoadedListResult {
   data: string[];
   nextCursor?: string | null;
 }
+
+export interface ThreadTurnsListResult {
+  data: Turn[];
+  nextCursor?: string | null;
+  backwardsCursor?: string | null;
+}
+
+export interface ThreadResponse {
+  thread: Thread;
+}
+
+export interface ThreadResumeResponse extends ThreadResponse {
+  model?: string;
+  modelProvider?: string;
+  serviceTier?: string | null;
+  cwd?: string;
+  instructionSources?: string[];
+  approvalPolicy?: ApprovalPolicy;
+  sandbox?: SandboxPolicy;
+  reasoningEffort?: ReasoningEffort | null;
+}
+
+export type ThreadForkResponse = ThreadResumeResponse;
 
 export interface ThreadUnsubscribeResult {
   status: ThreadUnsubscribeStatus;
@@ -648,4 +696,170 @@ export interface InitializeParams {
 
 export interface InitializeResponse {
   userAgent: string;
+}
+
+export interface CodexClientRequestMap {
+  initialize: {
+    params: InitializeParams;
+    result: InitializeResponse;
+  };
+  "thread/start": {
+    params: StartThreadParams;
+    result: ThreadResponse;
+  };
+  "thread/resume": {
+    params: ThreadResumeParams;
+    result: ThreadResumeResponse;
+  };
+  "thread/fork": {
+    params: ThreadForkParams;
+    result: ThreadForkResponse;
+  };
+  "thread/read": {
+    params: { threadId: string; includeTurns: boolean };
+    result: ThreadResponse;
+  };
+  "thread/list": {
+    params: ListThreadsParams;
+    result: ThreadListResult;
+  };
+  "thread/turns/list": {
+    params: ThreadTurnsListParams;
+    result: ThreadTurnsListResult;
+  };
+  "thread/loaded/list": {
+    params: ListLoadedThreadsParams;
+    result: ThreadLoadedListResult;
+  };
+  "thread/archive": {
+    params: { threadId: string };
+    result: Record<string, never>;
+  };
+  "thread/unarchive": {
+    params: { threadId: string };
+    result: ThreadResponse;
+  };
+  "thread/unsubscribe": {
+    params: { threadId: string };
+    result: ThreadUnsubscribeResult;
+  };
+  "thread/name/set": {
+    params: { threadId: string; name: string };
+    result: Record<string, never>;
+  };
+  "thread/compact/start": {
+    params: { threadId: string };
+    result: Record<string, never>;
+  };
+  "thread/rollback": {
+    params: { threadId: string; numTurns: number };
+    result: ThreadResponse;
+  };
+  "turn/start": {
+    params: StartTurnParams;
+    result: { turn: Turn };
+  };
+  "turn/steer": {
+    params: SteerTurnParams;
+    result: { turnId: string };
+  };
+  "turn/interrupt": {
+    params: { threadId: string; turnId: string };
+    result: Record<string, never>;
+  };
+  "review/start": {
+    params: StartReviewParams;
+    result: ReviewResult;
+  };
+  "model/list": {
+    params: ListModelsParams;
+    result: ModelListResult;
+  };
+  "experimentalFeature/list": {
+    params: ExperimentalFeatureListParams;
+    result: ExperimentalFeatureListResult;
+  };
+  "collaborationMode/list": {
+    params: Record<string, never>;
+    result: CollaborationModeListResult;
+  };
+  "skills/list": {
+    params: SkillsListParams;
+    result: SkillsListResult;
+  };
+  "app/list": {
+    params: AppListParams;
+    result: AppListResult;
+  };
+  "config/read": {
+    params: ConfigReadParams;
+    result: ConfigReadResult;
+  };
+  "config/value/write": {
+    params: ConfigValueWriteParams;
+    result: ConfigWriteResult;
+  };
+  "config/batchWrite": {
+    params: ConfigBatchWriteParams;
+    result: ConfigWriteResult;
+  };
+  "configRequirements/read": {
+    params: Record<string, never>;
+    result: ConfigRequirementsReadResult;
+  };
+  "command/exec": {
+    params: ExecCommandParams;
+    result: ExecCommandResult;
+  };
+  "command/exec/write": {
+    params: CommandExecWriteParams;
+    result: Record<string, never>;
+  };
+  "command/exec/resize": {
+    params: CommandExecResizeParams;
+    result: Record<string, never>;
+  };
+  "command/exec/terminate": {
+    params: CommandExecTerminateParams;
+    result: Record<string, never>;
+  };
+}
+
+export type CodexClientMethod = keyof CodexClientRequestMap;
+export type CodexClientRequestParams<Method extends CodexClientMethod> = CodexClientRequestMap[Method]["params"];
+export type CodexClientRequestResult<Method extends CodexClientMethod> = CodexClientRequestMap[Method]["result"];
+
+export interface CodexClientEventMap {
+  error: [Error];
+  stderr: [string];
+  "turn:started": [Turn];
+  "turn:started:notification": [TurnStartedNotification];
+  "turn:completed": [Turn];
+  "turn:completed:notification": [TurnCompletedNotification];
+  "item:started": [ThreadItem];
+  "item:started:notification": [ItemNotification];
+  "item:completed": [ThreadItem];
+  "item:completed:notification": [ItemNotification];
+  "item:agentMessage:delta": [{ itemId: string; delta: string }];
+  "item:agentMessage:delta:notification": [AgentMessageDeltaNotification];
+  "item:commandExecution:outputDelta": [{ itemId: string; delta: string }];
+  "item:commandExecution:outputDelta:notification": [CommandOutputDeltaNotification];
+  "command:exec:outputDelta": [CommandExecOutputDeltaNotification];
+  "turn:diff:updated": [DiffUpdatedNotification];
+  "turn:diff:updated:notification": [DiffUpdatedNotification];
+  "turn:plan:updated": [PlanUpdatedNotification];
+  "turn:plan:updated:notification": [PlanUpdatedNotification];
+  "turn:plan:delta": [PlanDeltaNotification];
+  "turn:plan:delta:notification": [PlanDeltaNotification];
+  "thread:started": [Thread];
+  "thread:status:changed": [ThreadStatusChangedNotification];
+  "thread:archived": [ThreadLifecycleNotification];
+  "thread:unarchived": [ThreadLifecycleNotification];
+  "thread:closed": [ThreadLifecycleNotification];
+  "thread:name:updated": [ThreadNameUpdatedNotification];
+  "app:list:updated": [AppListUpdatedNotification];
+  "serverRequest:resolved": [ServerRequestResolvedNotification];
+  "skills:changed": [];
+  "request:userInput": [ToolRequestUserInputParams & { requestId: RequestId }];
+  "server:request": [JsonRpcRequest];
 }

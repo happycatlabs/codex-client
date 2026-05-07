@@ -223,8 +223,70 @@ describe("CodexClient unit", () => {
     expect(result.id).toBe("thread-2");
     expect(transport.requests[1]?.params).toEqual({
       threadId: "thread-2",
-      persistExtendedHistory: false,
     });
+  });
+
+  test("resumeThread forwards excludeTurns when paging history separately", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+    transport.setResponder("thread/resume", () => ({ thread: { id: "thread-2", turns: [] } }));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    await client.resumeThread("thread-2", { excludeTurns: true });
+
+    expect(transport.requests[1]?.method).toBe("thread/resume");
+    expect(transport.requests[1]?.params).toEqual({
+      excludeTurns: true,
+      threadId: "thread-2",
+    });
+  });
+
+  test("forkThread forwards excludeTurns", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+    transport.setResponder("thread/fork", () => ({ thread: { id: "thread-3", forkedFromId: "thread-2" } }));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    const result = await client.forkThread("thread-2", { ephemeral: true, excludeTurns: true });
+
+    expect(result.id).toBe("thread-3");
+    expect(transport.requests[1]?.method).toBe("thread/fork");
+    expect(transport.requests[1]?.params).toEqual({
+      ephemeral: true,
+      excludeTurns: true,
+      threadId: "thread-2",
+    });
+  });
+
+  test("listThreadTurns calls thread/turns/list", async () => {
+    const transport = new MockTransport();
+    const turn: Turn = { id: "turn-1", status: "completed", items: [] };
+    transport.setResponder("initialize", () => ({}));
+    transport.setResponder("thread/turns/list", () => ({
+      data: [turn],
+      nextCursor: "older",
+      backwardsCursor: "newer",
+    }));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    const result = await client.listThreadTurns({
+      threadId: "thread-1",
+      limit: 1,
+      sortDirection: "desc",
+    });
+
+    expect(result).toEqual({
+      data: [turn],
+      nextCursor: "older",
+      backwardsCursor: "newer",
+    });
+    expect(transport.requests[1]?.method).toBe("thread/turns/list");
   });
 
   test("startTurn", async () => {
@@ -381,6 +443,31 @@ describe("CodexClient unit", () => {
         turnId: "turn-1",
         itemId: "command-1",
         delta: "output",
+      },
+    ]);
+  });
+
+  test("emits object-shaped thread status notifications", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    const received: unknown[] = [];
+    client.on("thread:status:changed", (payload) => {
+      received.push(payload);
+    });
+
+    transport.emitNotification("thread/status/changed", {
+      threadId: "thread-1",
+      status: { type: "active", activeFlags: ["waitingOnUserInput"] },
+    });
+
+    expect(received).toEqual([
+      {
+        threadId: "thread-1",
+        status: { type: "active", activeFlags: ["waitingOnUserInput"] },
       },
     ]);
   });
