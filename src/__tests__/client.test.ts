@@ -412,6 +412,45 @@ describe("CodexClient unit", () => {
     ]);
   });
 
+  test("emits raw response item completion notifications", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    const legacyItems: unknown[] = [];
+    const notifications: unknown[] = [];
+
+    client.on("rawResponseItem:completed", (item) => {
+      legacyItems.push(item);
+    });
+    client.on("rawResponseItem:completed:notification", (payload) => {
+      notifications.push(payload);
+    });
+
+    const item = {
+      call_id: "call-1",
+      output: [{ type: "input_image", image_url: "data:image/png;base64,abc" }],
+      type: "function_call_output",
+    } as const;
+
+    transport.emitNotification("rawResponseItem/completed", {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      item,
+    });
+
+    expect(legacyItems).toEqual([item]);
+    expect(notifications).toEqual([
+      {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        item,
+      },
+    ]);
+  });
+
   test("emits context-rich command output delta notifications", async () => {
     const transport = new MockTransport();
     transport.setResponder("initialize", () => ({}));

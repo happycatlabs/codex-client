@@ -76,6 +76,8 @@ await client.disconnect();
 | `item:started:notification`                      | `ItemNotification`                                         | An item began, including thread and turn context          |
 | `item:completed`                                 | `ThreadItem`                                               | An item finished                                          |
 | `item:completed:notification`                    | `ItemNotification`                                         | An item finished, including thread and turn context       |
+| `rawResponseItem:completed`                      | `ResponseItem`                                             | A raw Responses API item finished                         |
+| `rawResponseItem:completed:notification`         | `RawResponseItemCompletedNotification`                     | A raw Responses API item finished with thread context     |
 | `item:agentMessage:delta`                        | `{ itemId: string; delta: string }`                        | Streaming text chunk from the agent                       |
 | `item:agentMessage:delta:notification`           | `AgentMessageDeltaNotification`                            | Streaming text chunk with thread and turn context         |
 | `item:commandExecution:outputDelta`              | `{ itemId: string; delta: string }`                        | Streaming output from a command                           |

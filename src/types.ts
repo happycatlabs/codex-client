@@ -45,6 +45,31 @@ export type WriteStatus = "ok" | "okOverridden";
 export type ThreadUnsubscribeStatus = "notLoaded" | "notSubscribed" | "unsubscribed";
 export type CommandExecOutputStream = "stdout" | "stderr";
 export type SortDirection = "asc" | "desc";
+export type ImageDetail = "auto" | "low" | "high" | "original";
+export type MessagePhase = "commentary" | "final_answer";
+
+export type FunctionCallOutputContentItem =
+  | { type: "input_text"; text: string }
+  | { type: "input_image"; image_url: string; detail?: ImageDetail };
+export type FunctionCallOutputBody = string | FunctionCallOutputContentItem[];
+export type ContentItem =
+  | { type: "input_text"; text: string }
+  | { type: "input_image"; image_url: string; detail?: ImageDetail }
+  | { type: "output_text"; text: string };
+export type ResponseItem =
+  | { type: "message"; role: string; content: ContentItem[]; phase?: MessagePhase | null }
+  | { type: "function_call"; name: string; namespace?: string; arguments: string; call_id: string }
+  | { type: "function_call_output"; call_id: string; output: FunctionCallOutputBody }
+  | { type: "custom_tool_call"; status?: string; call_id: string; name: string; input: string }
+  | {
+      type: "custom_tool_call_output";
+      call_id: string;
+      name?: string;
+      output: FunctionCallOutputBody;
+    }
+  | { type: "image_generation_call"; id: string; status: string; revised_prompt?: string; result: string }
+  | { type: "reasoning"; summary: unknown[]; content?: unknown[] | null; encrypted_content: string | null }
+  | { type: string; [key: string]: unknown };
 
 export interface TurnError {
   message: string;
@@ -62,6 +87,15 @@ export interface FileChange {
 export type ThreadItem =
   | { type: "userMessage"; id: string; content: unknown[] }
   | { type: "agentMessage"; id: string; text: string; phase?: string | null }
+  | { type: "imageView"; id: string; path: string }
+  | {
+      type: "imageGeneration";
+      id: string;
+      status: string;
+      revisedPrompt: string | null;
+      result: string;
+      savedPath?: string;
+    }
   | {
       type: "commandExecution";
       id: string;
@@ -612,6 +646,12 @@ export interface ItemNotification {
   item: ThreadItem;
 }
 
+export interface RawResponseItemCompletedNotification {
+  threadId: string;
+  turnId: string;
+  item: ResponseItem;
+}
+
 export interface AgentMessageDeltaNotification {
   threadId: string;
   turnId: string;
@@ -840,6 +880,8 @@ export interface CodexClientEventMap {
   "item:started:notification": [ItemNotification];
   "item:completed": [ThreadItem];
   "item:completed:notification": [ItemNotification];
+  "rawResponseItem:completed": [ResponseItem];
+  "rawResponseItem:completed:notification": [RawResponseItemCompletedNotification];
   "item:agentMessage:delta": [{ itemId: string; delta: string }];
   "item:agentMessage:delta:notification": [AgentMessageDeltaNotification];
   "item:commandExecution:outputDelta": [{ itemId: string; delta: string }];

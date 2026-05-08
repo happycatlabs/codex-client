@@ -43,7 +43,9 @@ import type {
   ModelListResult,
   PlanDeltaNotification,
   PlanUpdatedNotification,
+  RawResponseItemCompletedNotification,
   RequestId,
+  ResponseItem,
   ReviewResult,
   ResumeThreadParams,
   ServerRequestResolvedNotification,
@@ -623,6 +625,13 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
         this.emit("_internal:itemCompleted", data);
         break;
       }
+      case "rawResponseItem/completed": {
+        const data = asRawResponseItemCompletedNotification(params);
+        if (!data) return;
+        this.emit("rawResponseItem:completed", data.item);
+        this.emit("rawResponseItem:completed:notification", data);
+        break;
+      }
       case "item/agentMessage/delta": {
         const data = asAgentDeltaNotification(params);
         if (!data) return;
@@ -1063,6 +1072,23 @@ function asItemNotification(params: unknown): ItemNotification | null {
   return null;
 }
 
+function asRawResponseItemCompletedNotification(params: unknown): RawResponseItemCompletedNotification | null {
+  if (
+    isObject(params) &&
+    typeof params.threadId === "string" &&
+    typeof params.turnId === "string" &&
+    isResponseItem(params.item)
+  ) {
+    return {
+      threadId: params.threadId,
+      turnId: params.turnId,
+      item: params.item,
+    };
+  }
+
+  return null;
+}
+
 function asAgentDeltaNotification(params: unknown): AgentMessageDeltaNotification | null {
   const delta = getString(params, "delta") ?? getString(params, "text");
   if (
@@ -1334,6 +1360,10 @@ function isTurn(value: unknown): value is Turn {
 
 function isThreadItem(value: unknown): value is ThreadItem {
   return isObject(value) && typeof value.id === "string" && typeof value.type === "string";
+}
+
+function isResponseItem(value: unknown): value is ResponseItem {
+  return isObject(value) && typeof value.type === "string";
 }
 
 function isModelInfo(value: unknown): value is ModelInfo {
