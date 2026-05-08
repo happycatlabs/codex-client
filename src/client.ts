@@ -39,6 +39,7 @@ import type {
   ListLoadedThreadsParams,
   ListModelsParams,
   ListThreadsParams,
+  McpToolCallProgressNotification,
   ModelInfo,
   ModelListResult,
   PlanDeltaNotification,
@@ -653,6 +654,16 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
         this.emit("item:commandExecution:outputDelta:notification", data);
         break;
       }
+      case "item/mcpToolCall/progress": {
+        const data = asMcpToolCallProgressNotification(params);
+        if (!data) return;
+        this.emit("item:mcpToolCall:progress", {
+          itemId: data.itemId,
+          message: data.message,
+        });
+        this.emit("item:mcpToolCall:progress:notification", data);
+        break;
+      }
       case "command/exec/outputDelta": {
         const data = asCommandExecOutputDeltaNotification(params);
         if (!data) return;
@@ -1123,6 +1134,26 @@ function asCommandOutputDeltaNotification(params: unknown): CommandOutputDeltaNo
       turnId: params.turnId,
       itemId: params.itemId,
       delta,
+    };
+  }
+
+  return null;
+}
+
+function asMcpToolCallProgressNotification(params: unknown): McpToolCallProgressNotification | null {
+  const message = getString(params, "message") ?? getString(params, "delta");
+  if (
+    isObject(params) &&
+    typeof params.threadId === "string" &&
+    typeof params.turnId === "string" &&
+    typeof params.itemId === "string" &&
+    message !== undefined
+  ) {
+    return {
+      threadId: params.threadId,
+      turnId: params.turnId,
+      itemId: params.itemId,
+      message,
     };
   }
 

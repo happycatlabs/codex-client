@@ -105,6 +105,8 @@ client.on("item:agentMessage:delta", (delta: { itemId: string; delta: string }) 
 client.on("item:agentMessage:delta:notification", (notification: AgentMessageDeltaNotification) => {});
 client.on("item:commandExecution:outputDelta", (delta: { itemId: string; delta: string }) => {});
 client.on("item:commandExecution:outputDelta:notification", (notification: CommandOutputDeltaNotification) => {});
+client.on("item:mcpToolCall:progress", (progress: { itemId: string; message: string }) => {});
+client.on("item:mcpToolCall:progress:notification", (notification: McpToolCallProgressNotification) => {});
 
 // Diff
 client.on("turn:diff:updated", (data: { threadId: string; turnId: string; diff: string }) => {});
@@ -208,6 +210,25 @@ type ThreadItem =
       aggregatedOutput?: string;
     }
   | { type: "fileChange"; id: string; changes: FileChange[]; status: string }
+  | { type: "mcpToolCall"; id: string; server: string; tool: string; status: string; arguments: JsonValue }
+  | {
+      type: "dynamicToolCall";
+      id: string;
+      namespace: string | null;
+      tool: string;
+      status: string;
+      arguments: JsonValue;
+    }
+  | {
+      type: "collabAgentToolCall";
+      id: string;
+      tool: string;
+      status: string;
+      senderThreadId: string;
+      receiverThreadIds: string[];
+    }
+  | { type: "webSearch"; id: string; query: string; action: WebSearchAction | null }
+  | { type: "hookPrompt"; id: string; fragments: HookPromptFragment[] }
   | { type: "enteredReviewMode"; id: string; review: string }
   | { type: "exitedReviewMode"; id: string; review: string }
   | { type: "reasoning"; id: string; summary?: unknown; content?: unknown }

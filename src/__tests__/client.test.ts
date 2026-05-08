@@ -486,6 +486,41 @@ describe("CodexClient unit", () => {
     ]);
   });
 
+  test("emits context-rich mcp tool progress notifications", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    const legacyProgress: unknown[] = [];
+    const notificationProgress: unknown[] = [];
+
+    client.on("item:mcpToolCall:progress", (payload) => {
+      legacyProgress.push(payload);
+    });
+    client.on("item:mcpToolCall:progress:notification", (payload) => {
+      notificationProgress.push(payload);
+    });
+
+    transport.emitNotification("item/mcpToolCall/progress", {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      itemId: "mcp-1",
+      message: "Taking screenshot",
+    });
+
+    expect(legacyProgress).toEqual([{ itemId: "mcp-1", message: "Taking screenshot" }]);
+    expect(notificationProgress).toEqual([
+      {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "mcp-1",
+        message: "Taking screenshot",
+      },
+    ]);
+  });
+
   test("emits object-shaped thread status notifications", async () => {
     const transport = new MockTransport();
     transport.setResponder("initialize", () => ({}));

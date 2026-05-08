@@ -84,9 +84,49 @@ export interface FileChange {
   [key: string]: unknown;
 }
 
+export type CommandExecutionSource = "agent" | "userShell" | "unifiedExecStartup" | "unifiedExecInteraction";
+export type CommandExecutionStatus = string;
+export type CommandAction =
+  | { type: "read"; command: string; name: string; path: string }
+  | { type: "listFiles"; command: string; path: string }
+  | { type: "search"; command: string; query: string; path: string }
+  | { type: "unknown"; command: string };
+export type PatchApplyStatus = "inProgress" | "completed" | "failed" | "declined";
+export type McpToolCallStatus = "inProgress" | "completed" | "failed";
+export interface McpToolCallResult {
+  content: JsonValue[];
+  structuredContent: JsonValue | null;
+  _meta: JsonValue | null;
+}
+export interface McpToolCallError {
+  message: string;
+}
+export type DynamicToolCallStatus = "inProgress" | "completed" | "failed";
+export type DynamicToolCallOutputContentItem =
+  | { type: "inputText"; text: string }
+  | { type: "inputImage"; imageUrl: string };
+export type CollabAgentTool = "spawnAgent" | "sendInput" | "resumeAgent" | "wait" | "closeAgent";
+export type CollabAgentToolCallStatus = "inProgress" | "completed" | "failed";
+export interface CollabAgentState {
+  [key: string]: JsonValue | undefined;
+}
+export type WebSearchAction =
+  | { type: "search"; query: string | null; queries: string[] | null }
+  | { type: "openPage"; url: string | null }
+  | { type: "findInPage"; url: string | null; pattern: string | null }
+  | { type: "other" };
+export interface HookPromptFragment {
+  text: string;
+  hookRunId: string;
+}
+export interface MemoryCitation {
+  [key: string]: JsonValue | undefined;
+}
+
 export type ThreadItem =
   | { type: "userMessage"; id: string; content: unknown[] }
-  | { type: "agentMessage"; id: string; text: string; phase?: string | null }
+  | { type: "hookPrompt"; id: string; fragments: HookPromptFragment[] }
+  | { type: "agentMessage"; id: string; text: string; phase?: string | null; memoryCitation?: MemoryCitation | null }
   | { type: "imageView"; id: string; path: string }
   | {
       type: "imageGeneration";
@@ -102,13 +142,50 @@ export type ThreadItem =
       command: string;
       cwd?: string;
       processId?: string | null;
-      status: string;
+      source?: CommandExecutionSource;
+      status: CommandExecutionStatus;
       exitCode?: number | null;
       aggregatedOutput?: string | null;
       durationMs?: number | null;
-      commandActions?: unknown[];
+      commandActions?: CommandAction[];
     }
-  | { type: "fileChange"; id: string; changes: FileChange[]; status: string }
+  | { type: "fileChange"; id: string; changes: FileChange[]; status: PatchApplyStatus | string }
+  | {
+      type: "mcpToolCall";
+      id: string;
+      server: string;
+      tool: string;
+      status: McpToolCallStatus;
+      arguments: JsonValue;
+      mcpAppResourceUri?: string;
+      result: McpToolCallResult | null;
+      error: McpToolCallError | null;
+      durationMs: number | null;
+    }
+  | {
+      type: "dynamicToolCall";
+      id: string;
+      namespace: string | null;
+      tool: string;
+      arguments: JsonValue;
+      status: DynamicToolCallStatus;
+      contentItems: DynamicToolCallOutputContentItem[] | null;
+      success: boolean | null;
+      durationMs: number | null;
+    }
+  | {
+      type: "collabAgentToolCall";
+      id: string;
+      tool: CollabAgentTool;
+      status: CollabAgentToolCallStatus;
+      senderThreadId: string;
+      receiverThreadIds: string[];
+      prompt: string | null;
+      model: string | null;
+      reasoningEffort: ReasoningEffort | null;
+      agentsStates: Record<string, CollabAgentState | undefined>;
+    }
+  | { type: "webSearch"; id: string; query: string; action: WebSearchAction | null }
   | { type: "enteredReviewMode"; id: string; review: string }
   | { type: "exitedReviewMode"; id: string; review: string }
   | { type: "reasoning"; id: string; summary?: unknown; content?: unknown }
@@ -666,6 +743,13 @@ export interface CommandOutputDeltaNotification {
   delta: string;
 }
 
+export interface McpToolCallProgressNotification {
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  message: string;
+}
+
 export interface CommandExecOutputDeltaNotification {
   processId: string;
   stream: CommandExecOutputStream;
@@ -886,6 +970,8 @@ export interface CodexClientEventMap {
   "item:agentMessage:delta:notification": [AgentMessageDeltaNotification];
   "item:commandExecution:outputDelta": [{ itemId: string; delta: string }];
   "item:commandExecution:outputDelta:notification": [CommandOutputDeltaNotification];
+  "item:mcpToolCall:progress": [{ itemId: string; message: string }];
+  "item:mcpToolCall:progress:notification": [McpToolCallProgressNotification];
   "command:exec:outputDelta": [CommandExecOutputDeltaNotification];
   "turn:diff:updated": [DiffUpdatedNotification];
   "turn:diff:updated:notification": [DiffUpdatedNotification];

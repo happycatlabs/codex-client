@@ -82,6 +82,8 @@ await client.disconnect();
 | `item:agentMessage:delta:notification`           | `AgentMessageDeltaNotification`                            | Streaming text chunk with thread and turn context         |
 | `item:commandExecution:outputDelta`              | `{ itemId: string; delta: string }`                        | Streaming output from a command                           |
 | `item:commandExecution:outputDelta:notification` | `CommandOutputDeltaNotification`                           | Streaming command output with thread and turn context     |
+| `item:mcpToolCall:progress`                      | `{ itemId: string; message: string }`                      | Streaming progress from an MCP tool call                  |
+| `item:mcpToolCall:progress:notification`         | `McpToolCallProgressNotification`                          | Streaming MCP progress with thread and turn context       |
 | `turn:diff:updated`                              | `{ threadId: string; turnId: string; diff: string }`       | Cumulative diff for the current turn                      |
 | `turn:diff:updated:notification`                 | `DiffUpdatedNotification`                                  | Cumulative diff notification                              |
 | `turn:plan:updated`                              | `{ threadId?: string; turnId: string; plan: PlanEntry[] }` | Agent plan updated                                        |
