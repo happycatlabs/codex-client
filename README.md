@@ -43,26 +43,31 @@ await client.disconnect();
 
 ## API Reference
 
-| Method                                | Description                                                     | Key Params                                   | Return Type                      |
-| ------------------------------------- | --------------------------------------------------------------- | -------------------------------------------- | -------------------------------- |
-| `connect()`                           | Spawn the app-server and complete the initialize handshake      | —                                            | `Promise<void>`                  |
-| `disconnect()`                        | Close the transport and kill the app-server process             | —                                            | `Promise<void>`                  |
-| `startThread(params)`                 | Create a new thread                                             | `StartThreadParams`                          | `Promise<Thread>`                |
-| `resumeThread(threadId, params?)`     | Resume an existing thread                                       | `threadId: string`, `ResumeThreadParams?`    | `Promise<Thread>`                |
-| `forkThread(threadId)`                | Fork a thread into a new copy                                   | `threadId: string`                           | `Promise<Thread>`                |
-| `readThread(threadId, includeTurns?)` | Read thread metadata (optionally with turn history)             | `threadId: string`, `includeTurns?: boolean` | `Promise<Thread>`                |
-| `listThreads(params?)`                | List threads with optional cursor pagination                    | `ListThreadsParams?`                         | `Promise<ThreadListResult>`      |
-| `listThreadTurns(params)`             | Page through stored turn history without resuming a thread      | `ThreadTurnsListParams`                      | `Promise<ThreadTurnsListResult>` |
-| `archiveThread(threadId)`             | Archive a thread                                                | `threadId: string`                           | `Promise<void>`                  |
-| `compactThread(threadId)`             | Compact a thread's history                                      | `threadId: string`                           | `Promise<void>`                  |
-| `startTurn(params)`                   | Start a turn and return immediately (non-blocking)              | `StartTurnParams`                            | `Promise<Turn>`                  |
-| `runTurn(params)`                     | Start a turn and wait for full completion, collecting all items | `StartTurnParams`                            | `Promise<CompletedTurn>`         |
-| `steerTurn(params)`                   | Steer an in-progress turn with new input                        | `SteerTurnParams`                            | `Promise<string>` (turnId)       |
-| `interruptTurn(threadId, turnId)`     | Interrupt an in-progress turn                                   | `threadId: string`, `turnId: string`         | `Promise<void>`                  |
-| `startReview(params)`                 | Start a code review turn                                        | `StartReviewParams`                          | `Promise<ReviewResult>`          |
-| `runReview(params)`                   | Start a review and wait for completion                          | `StartReviewParams`                          | `Promise<CompletedReview>`       |
-| `listModels(params?)`                 | List available models                                           | `ListModelsParams?`                          | `Promise<ModelListResult>`       |
-| `execCommand(params)`                 | Execute a sandboxed shell command (no thread)                   | `ExecCommandParams`                          | `Promise<ExecCommandResult>`     |
+| Method                                | Description                                                     | Key Params                                   | Return Type                           |
+| ------------------------------------- | --------------------------------------------------------------- | -------------------------------------------- | ------------------------------------- |
+| `connect()`                           | Spawn the app-server and complete the initialize handshake      | —                                            | `Promise<void>`                       |
+| `disconnect()`                        | Close the transport and kill the app-server process             | —                                            | `Promise<void>`                       |
+| `startThread(params)`                 | Create a new thread                                             | `StartThreadParams`                          | `Promise<Thread>`                     |
+| `resumeThread(threadId, params?)`     | Resume an existing thread                                       | `threadId: string`, `ResumeThreadParams?`    | `Promise<Thread>`                     |
+| `forkThread(threadId)`                | Fork a thread into a new copy                                   | `threadId: string`                           | `Promise<Thread>`                     |
+| `readThread(threadId, includeTurns?)` | Read thread metadata (optionally with turn history)             | `threadId: string`, `includeTurns?: boolean` | `Promise<Thread>`                     |
+| `listThreads(params?)`                | List threads with optional cursor pagination                    | `ListThreadsParams?`                         | `Promise<ThreadListResult>`           |
+| `listThreadTurns(params)`             | Page through stored turn history with optional item detail view | `ThreadTurnsListParams`                      | `Promise<ThreadTurnsListResult>`      |
+| `listThreadTurnItems(params)`         | Reserved API for paging items within one stored turn            | `ThreadTurnsItemsListParams`                 | `Promise<ThreadTurnsItemsListResult>` |
+| `archiveThread(threadId)`             | Archive a thread                                                | `threadId: string`                           | `Promise<void>`                       |
+| `compactThread(threadId)`             | Compact a thread's history                                      | `threadId: string`                           | `Promise<void>`                       |
+| `startTurn(params)`                   | Start a turn and return immediately (non-blocking)              | `StartTurnParams`                            | `Promise<Turn>`                       |
+| `runTurn(params)`                     | Start a turn and wait for full completion, collecting all items | `StartTurnParams`                            | `Promise<CompletedTurn>`              |
+| `steerTurn(params)`                   | Steer an in-progress turn with new input                        | `SteerTurnParams`                            | `Promise<string>` (turnId)            |
+| `interruptTurn(threadId, turnId)`     | Interrupt an in-progress turn                                   | `threadId: string`, `turnId: string`         | `Promise<void>`                       |
+| `startReview(params)`                 | Start a code review turn                                        | `StartReviewParams`                          | `Promise<ReviewResult>`               |
+| `runReview(params)`                   | Start a review and wait for completion                          | `StartReviewParams`                          | `Promise<CompletedReview>`            |
+| `listModels(params?)`                 | List available models                                           | `ListModelsParams?`                          | `Promise<ModelListResult>`            |
+| `execCommand(params)`                 | Execute a sandboxed shell command (no thread)                   | `ExecCommandParams`                          | `Promise<ExecCommandResult>`          |
+
+Recent Codex app-server fields are exposed on the matching params/types:
+`approvalsReviewer`, `sessionStartSource`, `threadSource`, array-valued
+`listThreads.cwd`, `listThreads.useStateDbOnly`, and model `serviceTiers`.
 
 ## Events
 
@@ -137,6 +142,17 @@ await new Promise<void>((resolve) => {
   });
 });
 ```
+
+## Large Thread History
+
+`thread/turns/list` supports `itemsView: "notLoaded" | "summary" | "full"` on
+Codex `0.130.0+`. Omit it only when you intentionally want the app-server
+default. Use `"summary"` for large-thread history UIs that need compact display
+items before selectively hydrating heavier detail.
+
+`thread/turns/items/list` is exposed as `listThreadTurnItems()` for protocol
+completeness, but Codex `0.130.0` currently returns an unsupported-method
+JSON-RPC error for it.
 
 ## Testing
 

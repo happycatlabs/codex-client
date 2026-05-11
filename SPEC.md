@@ -52,6 +52,8 @@ export class CodexClient extends EventEmitter {
   async forkThread(threadId: string): Promise<Thread>;
   async readThread(threadId: string, includeTurns?: boolean): Promise<Thread>;
   async listThreads(params?: ListThreadsParams): Promise<ThreadListResult>;
+  async listThreadTurns(params: ThreadTurnsListParams): Promise<ThreadTurnsListResult>;
+  async listThreadTurnItems(params: ThreadTurnsItemsListParams): Promise<ThreadTurnsItemsListResult>;
   async archiveThread(threadId: string): Promise<void>;
   async compactThread(threadId: string): Promise<void>;
 
@@ -178,10 +180,12 @@ interface JsonRpcError {
 // Thread
 interface Thread {
   id: string;
+  sessionId?: string;
   preview?: string;
   modelProvider?: string;
   createdAt?: number;
   updatedAt?: number;
+  threadSource?: "user" | "subagent" | "memory_consolidation" | null;
 }
 
 // Turn
@@ -246,11 +250,30 @@ interface StartThreadParams {
   model?: string;
   cwd?: string;
   approvalPolicy?: string;
+  approvalsReviewer?: "user" | "auto_review" | "guardian_subagent" | null;
   sandbox?: string;
   personality?: string;
+  sessionStartSource?: "startup" | "clear" | null;
+  threadSource?: "user" | "subagent" | "memory_consolidation" | null;
 }
 interface ResumeThreadParams {
+  approvalsReviewer?: "user" | "auto_review" | "guardian_subagent" | null;
   personality?: string;
+}
+interface ForkThreadParams extends ResumeThreadParams {
+  threadSource?: "user" | "subagent" | "memory_consolidation" | null;
+}
+interface ListThreadsParams {
+  cursor?: string | null;
+  limit?: number | null;
+  sortKey?: "created_at" | "updated_at" | string | null;
+  sortDirection?: "asc" | "desc" | null;
+  modelProviders?: string[] | null;
+  sourceKinds?: string[] | null;
+  archived?: boolean | null;
+  cwd?: string | string[] | null;
+  useStateDbOnly?: boolean;
+  searchTerm?: string | null;
 }
 interface StartTurnParams {
   threadId: string;
@@ -308,6 +331,8 @@ interface ModelInfo {
   id: string;
   model: string;
   displayName: string;
+  additionalSpeedTiers?: string[];
+  serviceTiers?: { id: string; name: string; description: string }[];
   isDefault?: boolean;
 }
 interface ThreadListResult {

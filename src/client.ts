@@ -62,6 +62,8 @@ import type {
   ThreadListResult,
   ThreadLoadedListResult,
   ThreadNameUpdatedNotification,
+  ThreadTurnsItemsListParams,
+  ThreadTurnsItemsListResult,
   ThreadTurnsListParams,
   ThreadTurnsListResult,
   ThreadStartedNotification,
@@ -232,6 +234,7 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
       ...(params.serviceTier !== undefined ? { serviceTier: params.serviceTier } : {}),
       cwd: params.cwd ?? this.options.cwd,
       approvalPolicy: params.approvalPolicy ?? this.options.approvalPolicy,
+      ...(params.approvalsReviewer !== undefined ? { approvalsReviewer: params.approvalsReviewer } : {}),
       sandbox: params.sandbox ?? this.options.sandbox,
       ...(params.config !== undefined ? { config: params.config } : {}),
       ...(params.serviceName !== undefined ? { serviceName: params.serviceName } : {}),
@@ -239,6 +242,8 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
       ...(params.developerInstructions !== undefined ? { developerInstructions: params.developerInstructions } : {}),
       ...(params.personality !== undefined ? { personality: params.personality } : {}),
       ...(params.ephemeral !== undefined ? { ephemeral: params.ephemeral } : {}),
+      ...(params.sessionStartSource !== undefined ? { sessionStartSource: params.sessionStartSource } : {}),
+      ...(params.threadSource !== undefined ? { threadSource: params.threadSource } : {}),
       experimentalRawEvents: params.experimentalRawEvents ?? false,
       persistExtendedHistory: params.persistExtendedHistory ?? false,
     });
@@ -256,6 +261,7 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
       ...(params.serviceTier !== undefined ? { serviceTier: params.serviceTier } : {}),
       ...(params.cwd !== undefined ? { cwd: params.cwd } : {}),
       ...(params.approvalPolicy !== undefined ? { approvalPolicy: params.approvalPolicy } : {}),
+      ...(params.approvalsReviewer !== undefined ? { approvalsReviewer: params.approvalsReviewer } : {}),
       ...(params.sandbox !== undefined ? { sandbox: params.sandbox } : {}),
       ...(params.config !== undefined ? { config: params.config } : {}),
       ...(params.baseInstructions !== undefined ? { baseInstructions: params.baseInstructions } : {}),
@@ -277,11 +283,13 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
       ...(params.serviceTier !== undefined ? { serviceTier: params.serviceTier } : {}),
       ...(params.cwd !== undefined ? { cwd: params.cwd } : {}),
       ...(params.approvalPolicy !== undefined ? { approvalPolicy: params.approvalPolicy } : {}),
+      ...(params.approvalsReviewer !== undefined ? { approvalsReviewer: params.approvalsReviewer } : {}),
       ...(params.sandbox !== undefined ? { sandbox: params.sandbox } : {}),
       ...(params.config !== undefined ? { config: params.config } : {}),
       ...(params.baseInstructions !== undefined ? { baseInstructions: params.baseInstructions } : {}),
       ...(params.developerInstructions !== undefined ? { developerInstructions: params.developerInstructions } : {}),
       ...(params.ephemeral !== undefined ? { ephemeral: params.ephemeral } : {}),
+      ...(params.threadSource !== undefined ? { threadSource: params.threadSource } : {}),
       ...(params.excludeTurns !== undefined ? { excludeTurns: params.excludeTurns } : {}),
       ...(params.persistExtendedHistory !== undefined ? { persistExtendedHistory: params.persistExtendedHistory } : {}),
     });
@@ -311,6 +319,11 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
   async listThreadTurns(params: ThreadTurnsListParams): Promise<ThreadTurnsListResult> {
     const result = await this.request("thread/turns/list", params);
     return extractThreadTurnsList(result);
+  }
+
+  async listThreadTurnItems(params: ThreadTurnsItemsListParams): Promise<ThreadTurnsItemsListResult> {
+    const result = await this.request("thread/turns/items/list", params);
+    return extractThreadTurnItemsList(result);
   }
 
   async archiveThread(threadId: string): Promise<void> {
@@ -925,6 +938,20 @@ function extractThreadTurnsList(result: unknown): ThreadTurnsListResult {
   }
 
   throw new Error("Invalid thread turns list response");
+}
+
+function extractThreadTurnItemsList(result: unknown): ThreadTurnsItemsListResult {
+  if (isObject(result) && Array.isArray(result.data)) {
+    return {
+      data: result.data.filter(isThreadItem),
+      ...(typeof result.nextCursor === "string" || result.nextCursor === null ? { nextCursor: result.nextCursor } : {}),
+      ...(typeof result.backwardsCursor === "string" || result.backwardsCursor === null
+        ? { backwardsCursor: result.backwardsCursor }
+        : {}),
+    };
+  }
+
+  throw new Error("Invalid thread turn items list response");
 }
 
 function extractModelList(result: unknown): ModelListResult {

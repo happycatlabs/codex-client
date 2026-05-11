@@ -45,6 +45,11 @@ export type WriteStatus = "ok" | "okOverridden";
 export type ThreadUnsubscribeStatus = "notLoaded" | "notSubscribed" | "unsubscribed";
 export type CommandExecOutputStream = "stdout" | "stderr";
 export type SortDirection = "asc" | "desc";
+export type TurnItemsView = "notLoaded" | "summary" | "full";
+export type ApprovalsReviewer = "user" | "auto_review" | "guardian_subagent";
+export type ThreadSource = "user" | "subagent" | "memory_consolidation";
+export type ThreadSourceKind = "local" | "remote" | string;
+export type ThreadStartSource = "startup" | "clear";
 export type ImageDetail = "auto" | "low" | "high" | "original";
 export type MessagePhase = "commentary" | "final_answer";
 
@@ -197,7 +202,11 @@ export interface Turn {
   id: string;
   status: TurnStatus;
   items: ThreadItem[];
+  itemsView?: TurnItemsView;
   error?: TurnError | null;
+  startedAt?: number | null;
+  completedAt?: number | null;
+  durationMs?: number | null;
 }
 
 export interface GitInfo {
@@ -209,6 +218,7 @@ export interface GitInfo {
 
 export interface Thread {
   id: string;
+  sessionId?: string;
   forkedFromId?: string | null;
   preview?: string;
   ephemeral?: boolean;
@@ -220,6 +230,7 @@ export interface Thread {
   cwd?: string;
   cliVersion?: string;
   source?: string;
+  threadSource?: ThreadSource | null;
   agentNickname?: string | null;
   agentRole?: string | null;
   gitInfo?: GitInfo | null;
@@ -282,6 +293,7 @@ export interface StartThreadParams {
   serviceTier?: string | null;
   cwd?: string;
   approvalPolicy?: ApprovalPolicy;
+  approvalsReviewer?: ApprovalsReviewer | null;
   sandbox?: SandboxMode;
   config?: Record<string, JsonValue | undefined>;
   serviceName?: string | null;
@@ -289,6 +301,8 @@ export interface StartThreadParams {
   developerInstructions?: string | null;
   personality?: Personality;
   ephemeral?: boolean;
+  sessionStartSource?: ThreadStartSource | null;
+  threadSource?: ThreadSource | null;
   experimentalRawEvents?: boolean;
   persistExtendedHistory?: boolean;
 }
@@ -301,6 +315,7 @@ export interface ResumeThreadParams {
   serviceTier?: string | null;
   cwd?: string | null;
   approvalPolicy?: ApprovalPolicy | null;
+  approvalsReviewer?: ApprovalsReviewer | null;
   sandbox?: SandboxMode | null;
   config?: Record<string, JsonValue | undefined> | null;
   baseInstructions?: string | null;
@@ -317,11 +332,13 @@ export interface ForkThreadParams {
   serviceTier?: string | null;
   cwd?: string | null;
   approvalPolicy?: ApprovalPolicy | null;
+  approvalsReviewer?: ApprovalsReviewer | null;
   sandbox?: SandboxMode | null;
   config?: Record<string, JsonValue | undefined> | null;
   baseInstructions?: string | null;
   developerInstructions?: string | null;
   ephemeral?: boolean;
+  threadSource?: ThreadSource | null;
   excludeTurns?: boolean;
   persistExtendedHistory?: boolean;
 }
@@ -338,10 +355,12 @@ export interface ListThreadsParams {
   cursor?: string | null;
   limit?: number | null;
   sortKey?: "created_at" | "updated_at" | string | null;
+  sortDirection?: SortDirection | null;
   modelProviders?: string[] | null;
-  sourceKinds?: string[] | null;
+  sourceKinds?: ThreadSourceKind[] | null;
   archived?: boolean | null;
-  cwd?: string | null;
+  cwd?: string | string[] | null;
+  useStateDbOnly?: boolean;
   searchTerm?: string | null;
 }
 
@@ -352,6 +371,15 @@ export interface ListLoadedThreadsParams {
 
 export interface ThreadTurnsListParams {
   threadId: string;
+  cursor?: string | null;
+  limit?: number | null;
+  sortDirection?: SortDirection | null;
+  itemsView?: TurnItemsView | null;
+}
+
+export interface ThreadTurnsItemsListParams {
+  threadId: string;
+  turnId: string;
   cursor?: string | null;
   limit?: number | null;
   sortDirection?: SortDirection | null;
@@ -395,15 +423,9 @@ export interface ExperimentalFeatureListParams {
   limit?: number | null;
 }
 
-export interface SkillsListExtraRootsForCwd {
-  cwd: string;
-  extraUserRoots: string[];
-}
-
 export interface SkillsListParams {
   cwds?: string[];
   forceReload?: boolean;
-  perCwdExtraUserRoots?: SkillsListExtraRootsForCwd[] | null;
 }
 
 export interface AppListParams {
@@ -490,6 +512,12 @@ export interface ModelAvailabilityNux {
   [key: string]: unknown;
 }
 
+export interface ModelServiceTier {
+  id: string;
+  name: string;
+  description: string;
+}
+
 export interface ModelInfo {
   id: string;
   model: string;
@@ -503,6 +531,11 @@ export interface ModelInfo {
   upgrade?: string | null;
   upgradeInfo?: ModelUpgradeInfo | null;
   availabilityNux?: ModelAvailabilityNux | null;
+  /**
+   * Deprecated by Codex in favor of serviceTiers, but retained for older hosts.
+   */
+  additionalSpeedTiers?: string[];
+  serviceTiers?: ModelServiceTier[];
   isDefault?: boolean;
 }
 
@@ -591,6 +624,12 @@ export interface ThreadLoadedListResult {
 
 export interface ThreadTurnsListResult {
   data: Turn[];
+  nextCursor?: string | null;
+  backwardsCursor?: string | null;
+}
+
+export interface ThreadTurnsItemsListResult {
+  data: ThreadItem[];
   nextCursor?: string | null;
   backwardsCursor?: string | null;
 }
@@ -850,6 +889,10 @@ export interface CodexClientRequestMap {
   "thread/turns/list": {
     params: ThreadTurnsListParams;
     result: ThreadTurnsListResult;
+  };
+  "thread/turns/items/list": {
+    params: ThreadTurnsItemsListParams;
+    result: ThreadTurnsItemsListResult;
   };
   "thread/loaded/list": {
     params: ListLoadedThreadsParams;
