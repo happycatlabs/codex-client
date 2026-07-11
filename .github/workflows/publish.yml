@@ -14,8 +14,6 @@ jobs:
   publish:
     name: Publish package
     runs-on: ubuntu-latest
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -54,11 +52,8 @@ jobs:
       - name: Verify npm auth mode
         run: |
           set -euo pipefail
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "::notice::NPM_TOKEN is not available to this workflow. npm publish will only work if trusted publishing is configured for happycatlabs/codex-client and .github/workflows/publish.yml."
-          else
-            npm whoami
-          fi
+          echo "::notice::Publishing via npm trusted publishing (OIDC); no token expected. Requires the trusted publisher configured for happycatlabs/codex-client -> publish.yml."
+          npm --version
 
       - name: Verify package version is unpublished
         run: |
