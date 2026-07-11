@@ -8,11 +8,14 @@ import type {
   AppListUpdatedNotification,
   CodexClientEventMap,
   CodexClientOptions,
+  CodexProcessInfo,
   CodexClientRequestMap,
   CodexClientRequestParams,
   CodexClientRequestResult,
   CollaborationModeListResult,
   CommandExecOutputDeltaNotification,
+  CommandExecutionApprovalDecision,
+  CommandExecutionRequestApprovalParams,
   CommandExecResizeParams,
   CommandExecTerminateParams,
   CommandExecWriteParams,
@@ -25,11 +28,15 @@ import type {
   ConfigRequirementsReadResult,
   ConfigValueWriteParams,
   ConfigWriteResult,
+  DeprecationNoticeNotification,
   DiffUpdatedNotification,
+  ErrorNotification,
   ExecCommandParams,
   ExecCommandResult,
   ExperimentalFeatureListParams,
   ExperimentalFeatureListResult,
+  FileChangeApprovalDecision,
+  FileChangeRequestApprovalParams,
   ForkThreadParams,
   InitializeParams,
   InitializeResponse,
@@ -42,6 +49,9 @@ import type {
   McpToolCallProgressNotification,
   ModelInfo,
   ModelListResult,
+  ModelReroutedNotification,
+  PermissionsRequestApprovalParams,
+  PermissionsRequestApprovalResponse,
   PlanDeltaNotification,
   PlanUpdatedNotification,
   RawResponseItemCompletedNotification,
@@ -57,23 +67,30 @@ import type {
   StartTurnParams,
   SteerTurnParams,
   Thread,
+  ThreadCompactedNotification,
+  ThreadItemsListParams,
+  ThreadItemsListResult,
   ThreadItem,
   ThreadLifecycleNotification,
   ThreadListResult,
   ThreadLoadedListResult,
   ThreadNameUpdatedNotification,
+  ThreadStartedNotification,
+  ThreadStatusChangedNotification,
+  ThreadTokenUsage,
+  ThreadTokenUsageUpdatedNotification,
   ThreadTurnsItemsListParams,
   ThreadTurnsItemsListResult,
   ThreadTurnsListParams,
   ThreadTurnsListResult,
-  ThreadStartedNotification,
-  ThreadStatusChangedNotification,
   ThreadUnsubscribeResult,
   ToolRequestUserInputParams,
   ToolRequestUserInputResponse,
   Turn,
   TurnCompletedNotification,
+  TurnError,
   TurnStartedNotification,
+  WarningNotification,
 } from "./types.js";
 
 const TURN_TIMEOUT_MS = 5 * 60 * 1000;
@@ -83,22 +100,33 @@ interface CodexClientInternalOptions extends CodexClientOptions {
   transportFactory?: (cwd: string) => TransportLike;
 }
 
-const DEFAULT_OPTIONS: Required<CodexClientOptions> = {
+/**
+ * `model`, `requestAttestation`, and `mcpServerOpenaiFormElicitation` have no
+ * client-side default: when unset they are omitted from the wire payloads so
+ * the server applies its own defaults (e.g. the user's configured model).
+ */
+type ResolvedCodexClientOptions = Required<
+  Omit<CodexClientOptions, "model" | "requestAttestation" | "mcpServerOpenaiFormElicitation">
+> &
+  Pick<CodexClientOptions, "model" | "requestAttestation" | "mcpServerOpenaiFormElicitation">;
+
+const DEFAULT_OPTIONS: ResolvedCodexClientOptions = {
   clientName: "openclaw",
   clientTitle: "OpenClaw",
   clientVersion: "0.1.0",
-  model: "gpt-5.3-codex",
   cwd: getDefaultCwd(),
   approvalPolicy: "never",
   sandbox: "workspace-write",
   experimentalApi: true,
   optOutNotificationMethods: [],
   codexPath: "codex",
+  detached: false,
+  spawnArgs: [],
 };
 
 export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
   private transport: TransportLike | null = null;
-  private readonly options: Required<CodexClientOptions>;
+  private readonly options: ResolvedCodexClientOptions;
   private readonly transportFactory: (cwd: string) => TransportLike;
   private unsubscribeMessage: (() => void) | null = null;
   private unsubscribeError: (() => void) | null = null;
@@ -112,17 +140,32 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
       clientName: options.clientName ?? DEFAULT_OPTIONS.clientName,
       clientTitle: options.clientTitle ?? options.clientName ?? DEFAULT_OPTIONS.clientTitle,
       clientVersion: options.clientVersion ?? DEFAULT_OPTIONS.clientVersion,
-      model: options.model ?? DEFAULT_OPTIONS.model,
+      ...(options.model !== undefined ? { model: options.model } : {}),
       cwd: options.cwd ?? DEFAULT_OPTIONS.cwd,
       approvalPolicy: options.approvalPolicy ?? DEFAULT_OPTIONS.approvalPolicy,
       sandbox: options.sandbox ?? DEFAULT_OPTIONS.sandbox,
       experimentalApi: options.experimentalApi ?? DEFAULT_OPTIONS.experimentalApi,
+      ...(options.requestAttestation !== undefined ? { requestAttestation: options.requestAttestation } : {}),
+      ...(options.mcpServerOpenaiFormElicitation !== undefined
+        ? { mcpServerOpenaiFormElicitation: options.mcpServerOpenaiFormElicitation }
+        : {}),
       optOutNotificationMethods: options.optOutNotificationMethods ?? DEFAULT_OPTIONS.optOutNotificationMethods,
       codexPath: options.codexPath ?? DEFAULT_OPTIONS.codexPath,
+      detached: options.detached ?? DEFAULT_OPTIONS.detached,
+      spawnArgs: options.spawnArgs ?? DEFAULT_OPTIONS.spawnArgs,
     };
 
     this.transportFactory =
-      options.transportFactory ?? ((cwd: string) => StdioTransport.spawn(cwd, this.options.codexPath));
+      options.transportFactory ??
+      ((cwd: string) =>
+        StdioTransport.spawn(cwd, this.options.codexPath, this.options.spawnArgs, {
+          detached: this.options.detached,
+        }));
+  }
+
+  /** Spawned app-server identity while connected; absent for remote/custom transports. */
+  get processInfo(): CodexProcessInfo | undefined {
+    return this.transport?.processInfo;
   }
 
   async connect(): Promise<void> {
@@ -158,6 +201,12 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
       },
       capabilities: {
         experimentalApi: this.options.experimentalApi,
+        ...(this.options.requestAttestation !== undefined
+          ? { requestAttestation: this.options.requestAttestation }
+          : {}),
+        ...(this.options.mcpServerOpenaiFormElicitation !== undefined
+          ? { mcpServerOpenaiFormElicitation: this.options.mcpServerOpenaiFormElicitation }
+          : {}),
         ...(this.options.optOutNotificationMethods.length > 0
           ? { optOutNotificationMethods: this.options.optOutNotificationMethods }
           : {}),
@@ -227,9 +276,22 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
     this.respondToServerRequest(requestId, response);
   }
 
+  respondToCommandExecutionApproval(requestId: RequestId, decision: CommandExecutionApprovalDecision): void {
+    this.respondToServerRequest(requestId, { decision });
+  }
+
+  respondToFileChangeApproval(requestId: RequestId, decision: FileChangeApprovalDecision): void {
+    this.respondToServerRequest(requestId, { decision });
+  }
+
+  respondToPermissionsApproval(requestId: RequestId, response: PermissionsRequestApprovalResponse): void {
+    this.respondToServerRequest(requestId, response);
+  }
+
   async startThread(params: StartThreadParams = {}): Promise<Thread> {
+    const model = params.model ?? this.options.model;
     const result = await this.request("thread/start", {
-      model: params.model ?? this.options.model,
+      ...(model !== undefined ? { model } : {}),
       ...(params.modelProvider !== undefined ? { modelProvider: params.modelProvider } : {}),
       ...(params.serviceTier !== undefined ? { serviceTier: params.serviceTier } : {}),
       cwd: params.cwd ?? this.options.cwd,
@@ -244,8 +306,7 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
       ...(params.ephemeral !== undefined ? { ephemeral: params.ephemeral } : {}),
       ...(params.sessionStartSource !== undefined ? { sessionStartSource: params.sessionStartSource } : {}),
       ...(params.threadSource !== undefined ? { threadSource: params.threadSource } : {}),
-      experimentalRawEvents: params.experimentalRawEvents ?? false,
-      persistExtendedHistory: params.persistExtendedHistory ?? false,
+      ...(params.experimentalRawEvents !== undefined ? { experimentalRawEvents: params.experimentalRawEvents } : {}),
     });
 
     return extractThread(result);
@@ -254,8 +315,8 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
   async resumeThread(threadId: string, params: ResumeThreadParams = {}): Promise<Thread> {
     const result = await this.request("thread/resume", {
       threadId,
-      ...(params.path !== undefined ? { path: params.path } : {}),
       ...(params.history !== undefined ? { history: params.history } : {}),
+      ...(params.path !== undefined ? { path: params.path } : {}),
       ...(params.model !== undefined ? { model: params.model } : {}),
       ...(params.modelProvider !== undefined ? { modelProvider: params.modelProvider } : {}),
       ...(params.serviceTier !== undefined ? { serviceTier: params.serviceTier } : {}),
@@ -268,7 +329,7 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
       ...(params.developerInstructions !== undefined ? { developerInstructions: params.developerInstructions } : {}),
       ...(params.personality !== undefined ? { personality: params.personality } : {}),
       ...(params.excludeTurns !== undefined ? { excludeTurns: params.excludeTurns } : {}),
-      ...(params.persistExtendedHistory !== undefined ? { persistExtendedHistory: params.persistExtendedHistory } : {}),
+      ...(params.initialTurnsPage !== undefined ? { initialTurnsPage: params.initialTurnsPage } : {}),
     });
 
     return extractThread(result);
@@ -277,6 +338,7 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
   async forkThread(threadId: string, params: ForkThreadParams = {}): Promise<Thread> {
     const result = await this.request("thread/fork", {
       threadId,
+      ...(params.lastTurnId !== undefined ? { lastTurnId: params.lastTurnId } : {}),
       ...(params.path !== undefined ? { path: params.path } : {}),
       ...(params.model !== undefined ? { model: params.model } : {}),
       ...(params.modelProvider !== undefined ? { modelProvider: params.modelProvider } : {}),
@@ -291,7 +353,6 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
       ...(params.ephemeral !== undefined ? { ephemeral: params.ephemeral } : {}),
       ...(params.threadSource !== undefined ? { threadSource: params.threadSource } : {}),
       ...(params.excludeTurns !== undefined ? { excludeTurns: params.excludeTurns } : {}),
-      ...(params.persistExtendedHistory !== undefined ? { persistExtendedHistory: params.persistExtendedHistory } : {}),
     });
 
     return extractThread(result);
@@ -316,18 +377,29 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
     return extractLoadedThreadList(result);
   }
 
+  /** Experimental stored-turn pagination. */
   async listThreadTurns(params: ThreadTurnsListParams): Promise<ThreadTurnsListResult> {
     const result = await this.request("thread/turns/list", params);
     return extractThreadTurnsList(result);
   }
 
+  /** Experimental persisted-item pagination, optionally scoped to one turn. */
+  async listThreadItems(params: ThreadItemsListParams): Promise<ThreadItemsListResult> {
+    const result = await this.request("thread/items/list", params);
+    return extractThreadItemsList(result);
+  }
+
+  /** @deprecated Use `listThreadItems()`; this alias keeps the former one-turn helper name. */
   async listThreadTurnItems(params: ThreadTurnsItemsListParams): Promise<ThreadTurnsItemsListResult> {
-    const result = await this.request("thread/turns/items/list", params);
-    return extractThreadTurnItemsList(result);
+    return this.listThreadItems(params);
   }
 
   async archiveThread(threadId: string): Promise<void> {
     await this.request("thread/archive", { threadId });
+  }
+
+  async deleteThread(threadId: string): Promise<void> {
+    await this.request("thread/delete", { threadId });
   }
 
   async unarchiveThread(threadId: string): Promise<Thread> {
@@ -348,6 +420,11 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
     await this.request("thread/compact/start", { threadId });
   }
 
+  /**
+   * @deprecated `thread/rollback` is deprecated upstream and will be removed
+   * from the app-server protocol. Prefer `forkThread(threadId, { lastTurnId })`
+   * to branch a thread at an earlier turn.
+   */
   async rollbackThread(threadId: string, numTurns: number): Promise<Thread> {
     const result = await this.request("thread/rollback", { threadId, numTurns });
     return extractThread(result);
@@ -399,6 +476,7 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
     return extractExperimentalFeatureList(result);
   }
 
+  /** Experimental collaboration-mode presets. */
   async listCollaborationModes(): Promise<CollaborationModeListResult> {
     const result = await this.request("collaborationMode/list", {});
     return extractCollaborationModeList(result);
@@ -502,7 +580,8 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
 
       if (completedTurn.status === "failed") {
         const message = completedTurn.error?.message ?? "Turn failed";
-        throw new Error(message);
+        const details = completedTurn.error?.additionalDetails;
+        throw new Error(typeof details === "string" && details.length > 0 ? `${message}\n${details}` : message);
       }
 
       const items = itemsByTurn.get(turn.id) ?? [];
@@ -605,6 +684,8 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
       return;
     }
 
+    this.emit("notification", message);
+
     const { method, params } = message;
 
     switch (method) {
@@ -698,11 +779,56 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
         this.emit("turn:plan:updated:notification", data);
         break;
       }
+      // "turn/plan/delta" is the pre-0.144 method name kept for older servers.
+      case "item/plan/delta":
       case "turn/plan/delta": {
         const data = asPlanDeltaNotification(params);
         if (!data) return;
+        this.emit("item:plan:delta", data);
         this.emit("turn:plan:delta", data);
         this.emit("turn:plan:delta:notification", data);
+        break;
+      }
+      case "error": {
+        const data = asErrorNotification(params);
+        if (!data) return;
+        this.emit("turn:error", data);
+        break;
+      }
+      case "thread/tokenUsage/updated": {
+        const data = asThreadTokenUsageUpdatedNotification(params);
+        if (!data) return;
+        this.emit("thread:tokenUsage:updated", data);
+        break;
+      }
+      case "model/rerouted": {
+        const data = asModelReroutedNotification(params);
+        if (!data) return;
+        this.emit("model:rerouted", data);
+        break;
+      }
+      case "thread/deleted": {
+        const data = asThreadLifecycleNotification(params);
+        if (!data) return;
+        this.emit("thread:deleted", data);
+        break;
+      }
+      case "thread/compacted": {
+        const data = asThreadCompactedNotification(params);
+        if (!data) return;
+        this.emit("thread:compacted", data);
+        break;
+      }
+      case "deprecationNotice": {
+        const data = asDeprecationNoticeNotification(params);
+        if (!data) return;
+        this.emit("deprecationNotice", data);
+        break;
+      }
+      case "warning": {
+        const data = asWarningNotification(params);
+        if (!data) return;
+        this.emit("warning", data);
         break;
       }
       case "thread/started": {
@@ -772,6 +898,42 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
         }
 
         this.emit("request:userInput", {
+          requestId: message.id,
+          ...data,
+        });
+        break;
+      }
+      case "item/commandExecution/requestApproval": {
+        const data = asApprovalRequestParams<CommandExecutionRequestApprovalParams>(message.params);
+        if (!data) {
+          return;
+        }
+
+        this.emit("request:commandExecutionApproval", {
+          requestId: message.id,
+          ...data,
+        });
+        break;
+      }
+      case "item/fileChange/requestApproval": {
+        const data = asApprovalRequestParams<FileChangeRequestApprovalParams>(message.params);
+        if (!data) {
+          return;
+        }
+
+        this.emit("request:fileChangeApproval", {
+          requestId: message.id,
+          ...data,
+        });
+        break;
+      }
+      case "item/permissions/requestApproval": {
+        const data = asApprovalRequestParams<PermissionsRequestApprovalParams>(message.params);
+        if (!data) {
+          return;
+        }
+
+        this.emit("request:permissionsApproval", {
           requestId: message.id,
           ...data,
         });
@@ -940,7 +1102,7 @@ function extractThreadTurnsList(result: unknown): ThreadTurnsListResult {
   throw new Error("Invalid thread turns list response");
 }
 
-function extractThreadTurnItemsList(result: unknown): ThreadTurnsItemsListResult {
+function extractThreadItemsList(result: unknown): ThreadItemsListResult {
   if (isObject(result) && Array.isArray(result.data)) {
     return {
       data: result.data.filter(isThreadItem),
@@ -951,7 +1113,7 @@ function extractThreadTurnItemsList(result: unknown): ThreadTurnsItemsListResult
     };
   }
 
-  throw new Error("Invalid thread turn items list response");
+  throw new Error("Invalid thread items list response");
 }
 
 function extractModelList(result: unknown): ModelListResult {
@@ -1104,6 +1266,8 @@ function asItemNotification(params: unknown): ItemNotification | null {
       threadId: params.threadId,
       turnId: params.turnId,
       item: params.item,
+      ...(typeof params.startedAtMs === "number" ? { startedAtMs: params.startedAtMs } : {}),
+      ...(typeof params.completedAtMs === "number" ? { completedAtMs: params.completedAtMs } : {}),
     };
   }
 
@@ -1322,6 +1486,9 @@ function asToolRequestUserInputParams(params: unknown): ToolRequestUserInputPara
       threadId: params.threadId,
       turnId: params.turnId,
       questions,
+      ...(typeof params.autoResolutionMs === "number" || params.autoResolutionMs === null
+        ? { autoResolutionMs: params.autoResolutionMs }
+        : {}),
     };
   }
 
@@ -1377,6 +1544,112 @@ function asServerRequestResolvedNotification(params: unknown): ServerRequestReso
       threadId: params.threadId,
       requestId: params.requestId,
     };
+  }
+
+  return null;
+}
+
+function asErrorNotification(params: unknown): ErrorNotification | null {
+  if (
+    isObject(params) &&
+    typeof params.threadId === "string" &&
+    typeof params.turnId === "string" &&
+    typeof params.willRetry === "boolean" &&
+    isObject(params.error) &&
+    typeof params.error.message === "string"
+  ) {
+    return {
+      threadId: params.threadId,
+      turnId: params.turnId,
+      willRetry: params.willRetry,
+      error: params.error as TurnError,
+    };
+  }
+
+  return null;
+}
+
+function asThreadTokenUsageUpdatedNotification(params: unknown): ThreadTokenUsageUpdatedNotification | null {
+  if (
+    isObject(params) &&
+    typeof params.threadId === "string" &&
+    typeof params.turnId === "string" &&
+    isObject(params.tokenUsage)
+  ) {
+    return {
+      threadId: params.threadId,
+      turnId: params.turnId,
+      tokenUsage: params.tokenUsage as unknown as ThreadTokenUsage,
+    };
+  }
+
+  return null;
+}
+
+function asModelReroutedNotification(params: unknown): ModelReroutedNotification | null {
+  if (
+    isObject(params) &&
+    typeof params.threadId === "string" &&
+    typeof params.turnId === "string" &&
+    typeof params.fromModel === "string" &&
+    typeof params.toModel === "string" &&
+    typeof params.reason === "string"
+  ) {
+    return {
+      threadId: params.threadId,
+      turnId: params.turnId,
+      fromModel: params.fromModel,
+      toModel: params.toModel,
+      reason: params.reason,
+    };
+  }
+
+  return null;
+}
+
+function asThreadCompactedNotification(params: unknown): ThreadCompactedNotification | null {
+  if (isObject(params) && typeof params.threadId === "string" && typeof params.turnId === "string") {
+    return {
+      threadId: params.threadId,
+      turnId: params.turnId,
+    };
+  }
+
+  return null;
+}
+
+function asDeprecationNoticeNotification(params: unknown): DeprecationNoticeNotification | null {
+  if (isObject(params) && typeof params.summary === "string") {
+    return {
+      summary: params.summary,
+      ...(typeof params.details === "string" || params.details === null ? { details: params.details } : {}),
+    };
+  }
+
+  return null;
+}
+
+function asWarningNotification(params: unknown): WarningNotification | null {
+  if (isObject(params) && typeof params.message === "string") {
+    return {
+      message: params.message,
+      ...(typeof params.threadId === "string" || params.threadId === null ? { threadId: params.threadId } : {}),
+    };
+  }
+
+  return null;
+}
+
+function asApprovalRequestParams<T extends { threadId: string; turnId: string; itemId: string }>(
+  params: unknown,
+): T | null {
+  if (
+    isObject(params) &&
+    typeof params.threadId === "string" &&
+    typeof params.turnId === "string" &&
+    typeof params.itemId === "string"
+  ) {
+    return params as T;
   }
 
   return null;

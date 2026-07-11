@@ -1,4 +1,5 @@
 import type {
+  CodexProcessInfo,
   JsonRpcError,
   JsonRpcMessage,
   JsonRpcNotification,
@@ -8,6 +9,8 @@ import type {
 } from "./types.js";
 
 export interface TransportLike {
+  /** Local child identity when this transport owns a spawned process. */
+  readonly processInfo?: CodexProcessInfo;
   send(message: JsonRpcMessage): void;
   request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>;
   onMessage(handler: (message: JsonRpcMessage) => void): () => void;
@@ -23,6 +26,7 @@ interface PendingRequest {
 }
 
 export interface StdioProcess {
+  pid?: number;
   stdin: { write(data: string): unknown; end(): unknown };
   stdout: ReadableStream<Uint8Array> | null;
   stderr: ReadableStream<Uint8Array> | null;
@@ -38,6 +42,7 @@ type BunRuntime = {
       stderr: "pipe";
       stdin: "pipe";
       stdout: "pipe";
+      detached: boolean;
     },
   ) => unknown;
 };
@@ -47,6 +52,8 @@ type GlobalWithBun = typeof globalThis & {
 };
 
 export class StdioTransport {
+  readonly processInfo: CodexProcessInfo | undefined;
+
   private readonly messageHandlers = new Set<(message: JsonRpcMessage) => void>();
   private readonly errorHandlers = new Set<(error: Error) => void>();
   private readonly stderrHandlers = new Set<(line: string) => void>();
@@ -59,7 +66,11 @@ export class StdioTransport {
   private readLoopPromise: Promise<void> | null = null;
   private stderrReadLoopPromise: Promise<void> | null = null;
 
-  constructor(private readonly process: StdioProcess) {
+  constructor(
+    private readonly process: StdioProcess,
+    options: { detached?: boolean } = {},
+  ) {
+    this.processInfo = processInfoFor(process.pid, options.detached === true);
     this.readLoopPromise = this.readLoop();
     this.stderrReadLoopPromise = this.readStderrLoop();
     this.process.exited
@@ -76,17 +87,24 @@ export class StdioTransport {
       });
   }
 
-  static spawn(cwd: string, codexPath = "codex"): StdioTransport {
+  static spawn(
+    cwd: string,
+    codexPath = "codex",
+    spawnArgs: string[] = [],
+    options: { detached?: boolean } = {},
+  ): StdioTransport {
     const bun = (globalThis as GlobalWithBun).Bun;
 
     if (bun) {
-      const child = bun.spawn([codexPath, "app-server"], {
+      const detached = options.detached === true;
+      const child = bun.spawn([codexPath, "app-server", ...spawnArgs], {
         cwd,
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
+        detached,
       });
-      return new StdioTransport(child as unknown as StdioProcess);
+      return new StdioTransport(child as unknown as StdioProcess, { detached });
     }
 
     throw new Error("StdioTransport.spawn requires Bun. React Native clients should use WebSocketTransport.");
@@ -291,6 +309,23 @@ export class StdioTransport {
       handler(line);
     }
   }
+}
+
+function processInfoFor(pid: number | undefined, detached: boolean): CodexProcessInfo | undefined {
+  if (pid === undefined || !Number.isInteger(pid) || pid <= 0) {
+    return undefined;
+  }
+
+  // POSIX detached children become process-group leaders. Windows has detached
+  // process semantics but no POSIX PGID, so exposing one there would be false.
+  const platform = (
+    globalThis as typeof globalThis & {
+      process?: { platform?: string };
+    }
+  ).process?.platform;
+  const hasPosixProcessGroup = detached && platform !== undefined && platform !== "win32";
+
+  return Object.freeze({ pid, ...(hasPosixProcessGroup ? { pgid: pid } : {}) });
 }
 
 export function isJsonRpcResponse(message: JsonRpcMessage): message is JsonRpcResponse {

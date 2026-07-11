@@ -20,7 +20,9 @@ Handles the raw JSON-RPC communication over stdio:
 
 ```ts
 export class StdioTransport {
-  constructor(private process: ChildProcess);
+  readonly processInfo: CodexProcessInfo | undefined;
+
+  constructor(private process: StdioProcess, options?: { detached?: boolean });
 
   send(message: JsonRpcMessage): void;
   onMessage(handler: (message: JsonRpcMessage) => void): void;
@@ -28,7 +30,8 @@ export class StdioTransport {
 }
 ```
 
-- Spawns `codex app-server` with `stdio: ['pipe', 'pipe', 'inherit']`
+- Spawns `codex app-server` with piped stdin/stdout/stderr
+- Supports opt-in detached process groups and reports `{ pid, pgid }` on POSIX (`pgid === pid` only when detached); Windows reports only `{ pid }`
 - Reads stdout line-by-line, parses each line as JSON
 - Writes to stdin as JSONL (JSON + newline)
 - Tracks pending requests by `id` and resolves/rejects their promises when responses arrive
@@ -43,19 +46,29 @@ export class CodexClient extends EventEmitter {
   constructor(options?: CodexClientOptions);
 
   // Lifecycle
+  readonly processInfo: CodexProcessInfo | undefined; // available while connected when transport owns a local child
   async connect(): Promise<void>; // spawns app-server, sends initialize + initialized
   async disconnect(): Promise<void>; // closes transport
 
   // Threads
   async startThread(params: StartThreadParams): Promise<Thread>;
   async resumeThread(threadId: string, params?: ResumeThreadParams): Promise<Thread>;
-  async forkThread(threadId: string): Promise<Thread>;
-  async readThread(threadId: string, includeTurns?: boolean): Promise<Thread>;
+  async forkThread(threadId: string, params?: ForkThreadParams): Promise<Thread>;
+  async readThread(threadId: string, includeTurns?: boolean): Promise<Thread>; // includeTurns pages stored turn history
   async listThreads(params?: ListThreadsParams): Promise<ThreadListResult>;
-  async listThreadTurns(params: ThreadTurnsListParams): Promise<ThreadTurnsListResult>;
-  async listThreadTurnItems(params: ThreadTurnsItemsListParams): Promise<ThreadTurnsItemsListResult>;
+  async listLoadedThreads(params?: ListLoadedThreadsParams): Promise<ThreadLoadedListResult>;
+  async listThreadTurns(params: ThreadTurnsListParams): Promise<ThreadTurnsListResult>; // experimental
+  async listThreadItems(params: ThreadItemsListParams): Promise<ThreadItemsListResult>; // experimental
+  /** @deprecated Use listThreadItems(). */
+  async listThreadTurnItems(params: ThreadTurnsItemsListParams): Promise<ThreadItemsListResult>;
   async archiveThread(threadId: string): Promise<void>;
+  async unarchiveThread(threadId: string): Promise<Thread>;
+  async deleteThread(threadId: string): Promise<void>;
+  async unsubscribeThread(threadId: string): Promise<ThreadUnsubscribeResult>;
+  async setThreadName(threadId: string, name: string): Promise<void>;
   async compactThread(threadId: string): Promise<void>;
+  /** @deprecated thread/rollback is deprecated upstream; prefer forkThread with lastTurnId. */
+  async rollbackThread(threadId: string, numTurns: number): Promise<Thread>;
 
   // Turns
   async startTurn(params: StartTurnParams): Promise<Turn>;
@@ -67,6 +80,7 @@ export class CodexClient extends EventEmitter {
 
   // Models
   async listModels(params?: ListModelsParams): Promise<ModelListResult>;
+  async listCollaborationModes(): Promise<CollaborationModeListResult>; // experimental
 
   // Command execution (sandboxed, no thread)
   async execCommand(params: ExecCommandParams): Promise<ExecCommandResult>;
@@ -78,14 +92,29 @@ export class CodexClient extends EventEmitter {
 ```ts
 interface CodexClientOptions {
   clientName?: string; // default: "openclaw"
+  clientTitle?: string; // default: "OpenClaw"; follows a customized clientName when omitted
   clientVersion?: string; // default: "0.1.0"
-  model?: string; // default: "gpt-5.3-codex"
+  model?: string; // default: none — omitted from thread/start so the server uses the user's config default
   cwd?: string; // default: process.cwd()
-  approvalPolicy?: "never" | "unlessTrusted" | "always"; // default: "never"
-  sandbox?: string; // default: "workspaceWrite"
+  approvalPolicy?: "never" | "untrusted" | "on-request" | { granular: GranularApprovalPolicy }; // default: "never"
+  sandbox?: "read-only" | "workspace-write" | "danger-full-access"; // default: "workspace-write"
   experimentalApi?: boolean; // default: true
+  requestAttestation?: boolean; // default: unset; opt into attestation/generate requests
+  mcpServerOpenaiFormElicitation?: boolean; // default: unset; allow extended MCP form elicitations
+  optOutNotificationMethods?: string[]; // default: []
+  codexPath?: string; // default: "codex"
+  detached?: boolean; // default: false; detached child leads its own POSIX process group
+  spawnArgs?: string[]; // default: []; appended after the app-server subcommand
 }
 ```
+
+`processInfo.pgid` is available only for detached POSIX children. Windows has
+detached-process semantics but no POSIX process-group id, so only `pid` is
+reported there.
+
+Note: `sandbox` on `thread/start` takes kebab-case `SandboxMode` strings
+(`"workspace-write"`), while `sandboxPolicy` on `turn/start` takes a
+`SandboxPolicy` object whose `type` tags are camelCase (`"workspaceWrite"`).
 
 ### Events (emitted by the client)
 
@@ -117,11 +146,26 @@ client.on("turn:diff:updated:notification", (notification: DiffUpdatedNotificati
 // Plan
 client.on("turn:plan:updated", (data: { threadId?: string; turnId: string; plan: PlanEntry[] }) => {});
 client.on("turn:plan:updated:notification", (notification: PlanUpdatedNotification) => {});
-client.on("turn:plan:delta", (notification: PlanDeltaNotification) => {});
-client.on("turn:plan:delta:notification", (notification: PlanDeltaNotification) => {});
+client.on("item:plan:delta", (notification: PlanDeltaNotification) => {}); // wire method: item/plan/delta
+// turn:plan:delta and turn:plan:delta:notification remain as deprecated aliases of item:plan:delta
+
+// Diagnostics
+client.on("turn:error", (notification: ErrorNotification) => {}); // mid-turn errors, incl. willRetry
+client.on("model:rerouted", (notification: ModelReroutedNotification) => {});
+client.on("deprecationNotice", (notification: DeprecationNoticeNotification) => {});
+client.on("warning", (notification: WarningNotification) => {});
+client.on("notification", (message: JsonRpcNotification) => {}); // every server notification, raw
 
 // Thread
 client.on("thread:started", (thread: Thread) => {});
+client.on("thread:deleted", (notification: ThreadLifecycleNotification) => {});
+client.on("thread:compacted", (notification: ThreadCompactedNotification) => {});
+client.on("thread:tokenUsage:updated", (notification: ThreadTokenUsageUpdatedNotification) => {});
+
+// Approvals (server requests; respond via the matching respondTo* helper)
+client.on("request:commandExecutionApproval", (params) => {});
+client.on("request:fileChangeApproval", (params) => {});
+client.on("request:permissionsApproval", (params) => {});
 ```
 
 ### Turn Helper — `runTurn()`
@@ -197,7 +241,8 @@ interface Turn {
 }
 interface TurnError {
   message: string;
-  codexErrorInfo?: string;
+  codexErrorInfo?: CodexErrorInfo | null; // e.g. "usageLimitExceeded", "unauthorized", { httpConnectionFailed: {...} }
+  additionalDetails?: string | null;
 }
 
 // Items (simplified union)
@@ -246,12 +291,14 @@ interface FileChange {
 }
 
 // Params
+type ApprovalPolicy = "never" | "untrusted" | "on-request" | { granular: GranularApprovalPolicy };
+
 interface StartThreadParams {
-  model?: string;
+  model?: string; // omit to use the server-side config default
   cwd?: string;
-  approvalPolicy?: string;
+  approvalPolicy?: ApprovalPolicy;
   approvalsReviewer?: "user" | "auto_review" | "guardian_subagent" | null;
-  sandbox?: string;
+  sandbox?: "read-only" | "workspace-write" | "danger-full-access";
   personality?: string;
   sessionStartSource?: "startup" | "clear" | null;
   threadSource?: "user" | "subagent" | "memory_consolidation" | null;
@@ -260,7 +307,8 @@ interface ResumeThreadParams {
   approvalsReviewer?: "user" | "auto_review" | "guardian_subagent" | null;
   personality?: string;
 }
-interface ForkThreadParams extends ResumeThreadParams {
+interface ForkThreadParams {
+  lastTurnId?: string | null; // fork through this turn, inclusive
   threadSource?: "user" | "subagent" | "memory_consolidation" | null;
 }
 interface ListThreadsParams {
@@ -278,11 +326,14 @@ interface ListThreadsParams {
 interface StartTurnParams {
   threadId: string;
   input: TurnInput[];
+  clientUserMessageId?: string; // echoed back as clientId on the userMessage item
   cwd?: string;
   model?: string;
   effort?: string;
-  approvalPolicy?: string;
+  approvalPolicy?: ApprovalPolicy;
+  approvalsReviewer?: "user" | "auto_review" | "guardian_subagent" | null;
   sandboxPolicy?: SandboxPolicy;
+  collaborationMode?: CollaborationMode | null; // experimental
 }
 interface SteerTurnParams {
   threadId: string;
@@ -299,12 +350,13 @@ type TurnInput =
   | { type: "text"; text: string }
   | { type: "image"; url: string }
   | { type: "localImage"; path: string }
-  | { type: "skill"; name: string; path: string };
+  | { type: "skill"; name: string; path: string }
+  | { type: "mention"; name: string; path: string };
 type ReviewTarget =
   | { type: "uncommittedChanges" }
-  | { type: "baseBranch" }
-  | { type: "commit"; sha: string; title?: string }
-  | { type: "custom" };
+  | { type: "baseBranch"; branch: string }
+  | { type: "commit"; sha: string; title?: string | null }
+  | { type: "custom"; instructions: string };
 
 interface SandboxPolicy {
   type: string;
@@ -339,6 +391,22 @@ interface ThreadListResult {
   data: Thread[];
   nextCursor?: string | null;
 }
+interface ThreadStartResponse {
+  thread: Thread;
+  model: string;
+  modelProvider: string;
+  serviceTier: string | null;
+  cwd: string;
+  instructionSources: string[];
+  approvalPolicy: ApprovalPolicy;
+  approvalsReviewer: "user" | "auto_review" | "guardian_subagent";
+  sandbox: SandboxPolicy;
+  reasoningEffort: string | null;
+}
+interface ThreadResumeResponse extends ThreadStartResponse {
+  initialTurnsPage?: ThreadTurnsListResult | null; // experimental, when requested
+}
+type ThreadForkResponse = ThreadStartResponse;
 interface ExecCommandResult {
   exitCode: number;
   stdout: string;
@@ -370,6 +438,11 @@ Use an auto-incrementing counter starting at 0. The initialize handshake uses id
 7. **interruptTurn** — sends turn/interrupt
 8. **error response rejects** — JSON-RPC error response rejects the pending promise
 9. **process exit rejects pending** — transport close rejects all pending requests
+10. **detached spawn forwarding** — default false and opt-in true reach Bun.spawn
+11. **process identity** — transport/client expose valid PID/PGID, omit PGID on Windows, and return undefined when unavailable
+12. **experimental history APIs** — turn paging uses `thread/turns/list`; item paging and the deprecated one-turn helper both use `thread/items/list`
+13. **collaboration modes** — presets use `collaborationMode/list` and turn params preserve `collaborationMode`
+14. **thread lifecycle response typing** — start/resume/fork request results expose all current stable response metadata
 
 ### Integration test (real app-server, guarded):
 

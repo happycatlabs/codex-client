@@ -30,9 +30,20 @@ export interface JsonRpcError {
 export type RequestId = string | number;
 export type JsonRpcMessage = JsonRpcRequest | JsonRpcResponse | JsonRpcNotification;
 
-export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+/**
+ * Open string in codex-cli 0.144+; per-model valid values come from
+ * `Model.supportedReasoningEfforts` via `model/list`.
+ */
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | string;
 export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access" | string;
-export type ApprovalPolicy = string | { reject: Record<string, boolean> };
+export interface GranularApprovalPolicy {
+  sandbox_approval: boolean;
+  rules: boolean;
+  skill_approval: boolean;
+  request_permissions: boolean;
+  mcp_elicitations: boolean;
+}
+export type ApprovalPolicy = "untrusted" | "on-request" | "never" | { granular: GranularApprovalPolicy };
 export type Personality = "friendly" | "pragmatic" | "none" | string;
 export type ThreadActiveFlag = "waitingOnApproval" | "waitingOnUserInput";
 export type ThreadStatus =
@@ -50,6 +61,8 @@ export type ApprovalsReviewer = "user" | "auto_review" | "guardian_subagent";
 export type ThreadSource = "user" | "subagent" | "memory_consolidation";
 export type ThreadSourceKind = "local" | "remote" | string;
 export type ThreadStartSource = "startup" | "clear";
+export type ThreadHistoryMode = "legacy" | "paginated";
+export type CollaborationModeKind = "plan" | "default";
 export type ImageDetail = "auto" | "low" | "high" | "original";
 export type MessagePhase = "commentary" | "final_answer";
 
@@ -76,9 +89,29 @@ export type ResponseItem =
   | { type: "reasoning"; summary: unknown[]; content?: unknown[] | null; encrypted_content: string | null }
   | { type: string; [key: string]: unknown };
 
+export type CodexErrorInfo =
+  | "contextWindowExceeded"
+  | "sessionBudgetExceeded"
+  | "usageLimitExceeded"
+  | "serverOverloaded"
+  | "cyberPolicy"
+  | "internalServerError"
+  | "unauthorized"
+  | "badRequest"
+  | "threadRollbackFailed"
+  | "sandboxError"
+  | "other"
+  | { httpConnectionFailed: { httpStatusCode: number | null } }
+  | { responseStreamConnectionFailed: { httpStatusCode: number | null } }
+  | { responseStreamDisconnected: { httpStatusCode: number | null } }
+  | { responseTooManyFailedAttempts: { httpStatusCode: number | null } }
+  | { activeTurnNotSteerable: { turnKind: "review" | "compact" | string } }
+  | string;
+
 export interface TurnError {
   message: string;
-  codexErrorInfo?: string;
+  codexErrorInfo?: CodexErrorInfo | null;
+  additionalDetails?: string | null;
   [key: string]: unknown;
 }
 
@@ -129,7 +162,7 @@ export interface MemoryCitation {
 }
 
 export type ThreadItem =
-  | { type: "userMessage"; id: string; content: unknown[] }
+  | { type: "userMessage"; id: string; clientId?: string | null; content: unknown[] }
   | { type: "hookPrompt"; id: string; fragments: HookPromptFragment[] }
   | { type: "agentMessage"; id: string; text: string; phase?: string | null; memoryCitation?: MemoryCitation | null }
   | { type: "imageView"; id: string; path: string }
@@ -218,13 +251,18 @@ export interface GitInfo {
 
 export interface Thread {
   id: string;
+  /** Experimental implementation-specific thread data. */
+  extra?: Record<string, unknown> | null;
   sessionId?: string;
   forkedFromId?: string | null;
+  parentThreadId?: string | null;
   preview?: string;
   ephemeral?: boolean;
+  historyMode?: ThreadHistoryMode;
   modelProvider?: string;
   createdAt?: number;
   updatedAt?: number;
+  recencyAt?: number | null;
   status?: ThreadStatus;
   path?: string | null;
   cwd?: string;
@@ -264,9 +302,9 @@ export type TurnInput =
 
 export type ReviewTarget =
   | { type: "uncommittedChanges" }
-  | { type: "baseBranch" }
-  | { type: "commit"; sha: string; title?: string }
-  | { type: "custom" }
+  | { type: "baseBranch"; branch: string }
+  | { type: "commit"; sha: string; title?: string | null }
+  | { type: "custom"; instructions: string }
   | { type: string; [key: string]: unknown };
 
 export interface CollaborationModeSettings {
@@ -276,13 +314,13 @@ export interface CollaborationModeSettings {
 }
 
 export interface CollaborationMode {
-  mode: "plan" | "default";
+  mode: CollaborationModeKind;
   settings: CollaborationModeSettings;
 }
 
 export interface CollaborationModeMask {
   name: string;
-  mode: "plan" | "default" | null;
+  mode: CollaborationModeKind | null;
   model: string | null;
   reasoning_effort: ReasoningEffort | null;
 }
@@ -303,13 +341,15 @@ export interface StartThreadParams {
   ephemeral?: boolean;
   sessionStartSource?: ThreadStartSource | null;
   threadSource?: ThreadSource | null;
+  /** Experimental raw Responses API events; omitted unless explicitly set. */
   experimentalRawEvents?: boolean;
-  persistExtendedHistory?: boolean;
 }
 
 export interface ResumeThreadParams {
+  /** Experimental in-memory history used instead of loading the stored rollout. */
+  history?: ResponseItem[] | null;
+  /** Experimental rollout path override. Prefer resuming by thread id. */
   path?: string | null;
-  history?: unknown[] | null;
   model?: string | null;
   modelProvider?: string | null;
   serviceTier?: string | null;
@@ -321,11 +361,19 @@ export interface ResumeThreadParams {
   baseInstructions?: string | null;
   developerInstructions?: string | null;
   personality?: Personality | null;
+  /** Experimental: omit reconstructed turns from the returned thread. */
   excludeTurns?: boolean;
-  persistExtendedHistory?: boolean;
+  /** Experimental: include one turns page in the resume response. */
+  initialTurnsPage?: ThreadResumeInitialTurnsPageParams | null;
 }
 
 export interface ForkThreadParams {
+  /**
+   * Optional last turn id to fork through, inclusive. Turns after
+   * `lastTurnId` are omitted from the fork.
+   */
+  lastTurnId?: string | null;
+  /** Experimental rollout path override. Prefer forking by thread id. */
   path?: string | null;
   model?: string | null;
   modelProvider?: string | null;
@@ -339,8 +387,8 @@ export interface ForkThreadParams {
   developerInstructions?: string | null;
   ephemeral?: boolean;
   threadSource?: ThreadSource | null;
+  /** Experimental: omit reconstructed turns from the returned thread. */
   excludeTurns?: boolean;
-  persistExtendedHistory?: boolean;
 }
 
 export interface ThreadResumeParams extends ResumeThreadParams {
@@ -369,6 +417,7 @@ export interface ListLoadedThreadsParams {
   limit?: number | null;
 }
 
+/** Experimental turn-history pagination. */
 export interface ThreadTurnsListParams {
   threadId: string;
   cursor?: string | null;
@@ -377,26 +426,45 @@ export interface ThreadTurnsListParams {
   itemsView?: TurnItemsView | null;
 }
 
-export interface ThreadTurnsItemsListParams {
+/** Experimental persisted-item pagination, optionally scoped to one turn. */
+export interface ThreadItemsListParams {
   threadId: string;
-  turnId: string;
+  turnId?: string | null;
   cursor?: string | null;
   limit?: number | null;
   sortDirection?: SortDirection | null;
 }
 
+/** @deprecated Use `ThreadItemsListParams`; this alias requires a turn filter. */
+export interface ThreadTurnsItemsListParams extends ThreadItemsListParams {
+  turnId: string;
+}
+
+export interface ThreadResumeInitialTurnsPageParams {
+  limit?: number | null;
+  sortDirection?: SortDirection | null;
+  itemsView?: TurnItemsView | null;
+}
+
 export interface StartTurnParams {
   threadId: string;
   input: TurnInput[];
+  /**
+   * Optional client-supplied id echoed back as `clientId` on the
+   * corresponding `userMessage` thread item.
+   */
+  clientUserMessageId?: string | null;
   cwd?: string | null;
   model?: string | null;
   serviceTier?: string | null;
   effort?: ReasoningEffort | null;
   summary?: string | null;
   approvalPolicy?: ApprovalPolicy | null;
+  approvalsReviewer?: ApprovalsReviewer | null;
   sandboxPolicy?: SandboxPolicy | null;
   personality?: Personality | null;
   outputSchema?: JsonValue | null;
+  /** Experimental pre-set collaboration mode. */
   collaborationMode?: CollaborationMode | null;
 }
 
@@ -628,28 +696,48 @@ export interface ThreadTurnsListResult {
   backwardsCursor?: string | null;
 }
 
-export interface ThreadTurnsItemsListResult {
+export interface ThreadItemsListResult {
   data: ThreadItem[];
   nextCursor?: string | null;
   backwardsCursor?: string | null;
 }
 
+/** @deprecated Use `ThreadItemsListResult`. */
+export type ThreadTurnsItemsListResult = ThreadItemsListResult;
+
 export interface ThreadResponse {
   thread: Thread;
 }
 
-export interface ThreadResumeResponse extends ThreadResponse {
-  model?: string;
-  modelProvider?: string;
-  serviceTier?: string | null;
-  cwd?: string;
-  instructionSources?: string[];
-  approvalPolicy?: ApprovalPolicy;
-  sandbox?: SandboxPolicy;
-  reasoningEffort?: ReasoningEffort | null;
+export interface ActivePermissionProfile {
+  id: string;
+  extends: string | null;
 }
 
-export type ThreadForkResponse = ThreadResumeResponse;
+/** Current app-server metadata returned when a thread becomes live. */
+export interface ThreadStartResponse extends ThreadResponse {
+  model: string;
+  modelProvider: string;
+  serviceTier: string | null;
+  cwd: string;
+  instructionSources: string[];
+  approvalPolicy: ApprovalPolicy;
+  approvalsReviewer: ApprovalsReviewer;
+  sandbox: SandboxPolicy;
+  reasoningEffort: ReasoningEffort | null;
+  /** Experimental fields present when the matching capability is enabled. */
+  runtimeWorkspaceRoots?: string[];
+  activePermissionProfile?: ActivePermissionProfile | null;
+  multiAgentMode?: string;
+  [key: string]: unknown;
+}
+
+export interface ThreadResumeResponse extends ThreadStartResponse {
+  /** Experimental page requested through `initialTurnsPage`. */
+  initialTurnsPage?: ThreadTurnsListResult | null;
+}
+
+export type ThreadForkResponse = ThreadStartResponse;
 
 export interface ThreadUnsubscribeResult {
   status: ThreadUnsubscribeStatus;
@@ -704,17 +792,45 @@ export interface CompletedReview {
   reviewText: string;
 }
 
+/** Identity of the locally spawned Codex app-server process. */
+export interface CodexProcessInfo {
+  readonly pid: number;
+  /** Present only when the client spawned a detached POSIX process group. */
+  readonly pgid?: number;
+}
+
 export interface CodexClientOptions {
   clientName?: string;
   clientTitle?: string;
   clientVersion?: string;
+  /**
+   * Default model for new threads. When omitted, `thread/start` is sent
+   * without a model and the server falls back to the user's config default
+   * (`model` in `~/.codex/config.toml`). Use `listModels()` and the
+   * `isDefault` flag to discover the catalog default.
+   */
   model?: string;
   cwd?: string;
-  approvalPolicy?: "never" | "untrusted" | "on-failure" | "on-request";
+  approvalPolicy?: ApprovalPolicy;
   sandbox?: SandboxMode;
   experimentalApi?: boolean;
+  /** Opt into `attestation/generate` server requests. */
+  requestAttestation?: boolean;
+  /** Allow downstream MCP servers to request OpenAI extended form elicitations. */
+  mcpServerOpenaiFormElicitation?: boolean;
   optOutNotificationMethods?: string[];
   codexPath?: string;
+  /**
+   * Spawn app-server as a detached process-group leader. Defaults to false.
+   * On POSIX, processInfo.pgid then equals processInfo.pid. Windows has no PGID.
+   */
+  detached?: boolean;
+  /**
+   * Extra CLI arguments appended after `app-server` when spawning the stdio
+   * transport, e.g. `["proxy"]` to attach to a shared daemon via
+   * `codex app-server proxy`, or `["-c", "key=value"]` config overrides.
+   */
+  spawnArgs?: string[];
 }
 
 export interface TurnStartedNotification {
@@ -741,6 +857,11 @@ export interface ToolRequestUserInputParams {
   threadId: string;
   turnId: string;
   questions: ToolRequestUserInputQuestion[];
+  /**
+   * When set, the server may auto-resolve the request after this many
+   * milliseconds if no answer arrives.
+   */
+  autoResolutionMs?: number | null;
 }
 
 export interface ToolRequestUserInputAnswer {
@@ -760,6 +881,10 @@ export interface ItemNotification {
   threadId: string;
   turnId: string;
   item: ThreadItem;
+  /** Unix timestamp (ms) when the item started; sent on `item/started`. */
+  startedAtMs?: number;
+  /** Unix timestamp (ms) when the item completed; sent on `item/completed`. */
+  completedAtMs?: number;
 }
 
 export interface RawResponseItemCompletedNotification {
@@ -843,8 +968,166 @@ export interface ServerRequestResolvedNotification {
   requestId: RequestId;
 }
 
+export interface ErrorNotification {
+  threadId: string;
+  turnId: string;
+  error: TurnError;
+  willRetry: boolean;
+}
+
+export interface TokenUsageBreakdown {
+  totalTokens: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+}
+
+export interface ThreadTokenUsage {
+  total: TokenUsageBreakdown;
+  last: TokenUsageBreakdown;
+  modelContextWindow: number | null;
+}
+
+export interface ThreadTokenUsageUpdatedNotification {
+  threadId: string;
+  turnId: string;
+  tokenUsage: ThreadTokenUsage;
+}
+
+export interface ModelReroutedNotification {
+  threadId: string;
+  turnId: string;
+  fromModel: string;
+  toModel: string;
+  reason: "highRiskCyberActivity" | string;
+}
+
+export interface ThreadCompactedNotification {
+  threadId: string;
+  turnId: string;
+}
+
+export interface DeprecationNoticeNotification {
+  summary: string;
+  details?: string | null;
+}
+
+export interface WarningNotification {
+  threadId?: string | null;
+  message: string;
+}
+
+export type ExecPolicyAmendment = string[];
+export type NetworkPolicyRuleAction = "allow" | "deny";
+
+export interface NetworkPolicyAmendment {
+  host: string;
+  action: NetworkPolicyRuleAction;
+}
+
+export interface NetworkApprovalContext {
+  host: string;
+  protocol: "http" | "https" | "socks5Tcp" | "socks5Udp" | string;
+}
+
+export interface CommandExecutionRequestApprovalParams {
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  startedAtMs?: number;
+  /** Distinct callback id when multiple approvals belong to one item. */
+  approvalId?: string | null;
+  environmentId?: string | null;
+  reason?: string | null;
+  networkApprovalContext?: NetworkApprovalContext | null;
+  command?: string | null;
+  cwd?: string | null;
+  commandActions?: CommandAction[] | null;
+  proposedExecpolicyAmendment?: ExecPolicyAmendment | null;
+  proposedNetworkPolicyAmendments?: NetworkPolicyAmendment[] | null;
+  [key: string]: unknown;
+}
+
+export interface FileChangeRequestApprovalParams {
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  startedAtMs?: number;
+  reason?: string | null;
+  /** When set, the agent asks to allow writes under this root for the session. */
+  grantRoot?: string | null;
+  [key: string]: unknown;
+}
+
+export interface AdditionalNetworkPermissions {
+  enabled?: boolean | null;
+  [key: string]: unknown;
+}
+
+export interface AdditionalFileSystemPermissions {
+  read?: string[] | null;
+  write?: string[] | null;
+  globScanMaxDepth?: number;
+  entries?: unknown[];
+  [key: string]: unknown;
+}
+
+export interface RequestPermissionProfile {
+  network?: AdditionalNetworkPermissions | null;
+  fileSystem?: AdditionalFileSystemPermissions | null;
+}
+
+export interface PermissionsRequestApprovalParams {
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  startedAtMs?: number;
+  environmentId?: string | null;
+  cwd?: string;
+  reason?: string | null;
+  permissions?: RequestPermissionProfile;
+  [key: string]: unknown;
+}
+
+export type CommandExecutionApprovalDecision =
+  | "accept"
+  | "acceptForSession"
+  | "decline"
+  | "cancel"
+  | { acceptWithExecpolicyAmendment: { execpolicy_amendment: ExecPolicyAmendment } }
+  | { applyNetworkPolicyAmendment: { network_policy_amendment: NetworkPolicyAmendment } };
+
+export type FileChangeApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
+
+export interface CommandExecutionRequestApprovalResponse {
+  decision: CommandExecutionApprovalDecision;
+}
+
+export interface FileChangeRequestApprovalResponse {
+  decision: FileChangeApprovalDecision;
+}
+
+export interface GrantedPermissionProfile {
+  network?: AdditionalNetworkPermissions;
+  fileSystem?: AdditionalFileSystemPermissions;
+}
+
+export type PermissionGrantScope = "turn" | "session";
+
+export interface PermissionsRequestApprovalResponse {
+  permissions: GrantedPermissionProfile;
+  scope: PermissionGrantScope;
+  /** Review every subsequent command in this turn before sandboxed execution. */
+  strictAutoReview?: boolean;
+}
+
 export interface InitializeCapabilities {
   experimentalApi: boolean;
+  /** Opt into `attestation/generate` server requests. Defaults to false. */
+  requestAttestation?: boolean;
+  /** Allow downstream MCP servers to request OpenAI extended form elicitations. */
+  mcpServerOpenaiFormElicitation?: boolean;
   optOutNotificationMethods?: string[] | null;
 }
 
@@ -859,6 +1142,12 @@ export interface InitializeParams {
 
 export interface InitializeResponse {
   userAgent: string;
+  /** Absolute path to the server's `$CODEX_HOME` directory (codex-cli 0.144+). */
+  codexHome?: string;
+  /** Platform family of the app-server, e.g. `"unix"` or `"windows"` (codex-cli 0.144+). */
+  platformFamily?: string;
+  /** Operating system of the app-server, e.g. `"macos"` (codex-cli 0.144+). */
+  platformOs?: string;
 }
 
 export interface CodexClientRequestMap {
@@ -868,7 +1157,7 @@ export interface CodexClientRequestMap {
   };
   "thread/start": {
     params: StartThreadParams;
-    result: ThreadResponse;
+    result: ThreadStartResponse;
   };
   "thread/resume": {
     params: ThreadResumeParams;
@@ -890,9 +1179,9 @@ export interface CodexClientRequestMap {
     params: ThreadTurnsListParams;
     result: ThreadTurnsListResult;
   };
-  "thread/turns/items/list": {
-    params: ThreadTurnsItemsListParams;
-    result: ThreadTurnsItemsListResult;
+  "thread/items/list": {
+    params: ThreadItemsListParams;
+    result: ThreadItemsListResult;
   };
   "thread/loaded/list": {
     params: ListLoadedThreadsParams;
@@ -905,6 +1194,10 @@ export interface CodexClientRequestMap {
   "thread/unarchive": {
     params: { threadId: string };
     result: ThreadResponse;
+  };
+  "thread/delete": {
+    params: { threadId: string };
+    result: Record<string, never>;
   };
   "thread/unsubscribe": {
     params: { threadId: string };
@@ -1020,17 +1313,32 @@ export interface CodexClientEventMap {
   "turn:diff:updated:notification": [DiffUpdatedNotification];
   "turn:plan:updated": [PlanUpdatedNotification];
   "turn:plan:updated:notification": [PlanUpdatedNotification];
+  "item:plan:delta": [PlanDeltaNotification];
+  /** @deprecated Alias of `item:plan:delta` kept for backward compatibility. */
   "turn:plan:delta": [PlanDeltaNotification];
+  /** @deprecated Alias of `item:plan:delta` kept for backward compatibility. */
   "turn:plan:delta:notification": [PlanDeltaNotification];
+  "turn:error": [ErrorNotification];
   "thread:started": [Thread];
   "thread:status:changed": [ThreadStatusChangedNotification];
   "thread:archived": [ThreadLifecycleNotification];
   "thread:unarchived": [ThreadLifecycleNotification];
+  "thread:deleted": [ThreadLifecycleNotification];
   "thread:closed": [ThreadLifecycleNotification];
+  "thread:compacted": [ThreadCompactedNotification];
   "thread:name:updated": [ThreadNameUpdatedNotification];
+  "thread:tokenUsage:updated": [ThreadTokenUsageUpdatedNotification];
+  "model:rerouted": [ModelReroutedNotification];
+  deprecationNotice: [DeprecationNoticeNotification];
+  warning: [WarningNotification];
   "app:list:updated": [AppListUpdatedNotification];
   "serverRequest:resolved": [ServerRequestResolvedNotification];
   "skills:changed": [];
   "request:userInput": [ToolRequestUserInputParams & { requestId: RequestId }];
+  "request:commandExecutionApproval": [CommandExecutionRequestApprovalParams & { requestId: RequestId }];
+  "request:fileChangeApproval": [FileChangeRequestApprovalParams & { requestId: RequestId }];
+  "request:permissionsApproval": [PermissionsRequestApprovalParams & { requestId: RequestId }];
   "server:request": [JsonRpcRequest];
+  /** Every server notification, including methods without first-class events. */
+  notification: [JsonRpcNotification];
 }
