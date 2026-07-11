@@ -1,6 +1,6 @@
 {
   "name": "@happycatlabs/codex-client",
-  "version": "0.1.12",
+  "version": "0.2.0",
   "description": "Codex API client for orcastrator",
   "license": "MIT",
   "author": "HappyCat Labs",
