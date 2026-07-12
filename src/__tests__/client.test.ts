@@ -1225,6 +1225,107 @@ describe("StdioTransport", () => {
     }
   });
 
+  test("falls back to Node child_process via getBuiltinModule when Bun is absent", async () => {
+    const spawnCalls: Array<{ command: string; args: string[]; options: Record<string, unknown> }> = [];
+    const exitListeners: Array<(code: number | null, signal: string | null) => void> = [];
+    const stdinWrites: string[] = [];
+    let stdoutController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const stdoutWeb = new ReadableStream<Uint8Array>({
+      start(controller) {
+        stdoutController = controller;
+      },
+    });
+    const stderrWeb = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+
+    const fakeChild = {
+      pid: 6201,
+      stdin: {
+        write(data: string) {
+          stdinWrites.push(data);
+          return true;
+        },
+        end() {
+          return undefined;
+        },
+      },
+      stdout: { fake: "stdout" },
+      stderr: { fake: "stderr" },
+      once(event: string, listener: (code: number | null, signal: string | null) => void) {
+        if (event === "exit") {
+          exitListeners.push(listener);
+        }
+        return fakeChild;
+      },
+      kill() {
+        return true;
+      },
+    };
+
+    const fakeModules: Record<string, unknown> = {
+      "node:child_process": {
+        spawn(command: string, args: string[], options: Record<string, unknown>) {
+          spawnCalls.push({ command, args, options });
+          return fakeChild;
+        },
+      },
+      "node:stream": {
+        Readable: {
+          toWeb: (stream: unknown) => (stream === fakeChild.stdout ? stdoutWeb : stderrWeb),
+        },
+      },
+      "node:os": { constants: { signals: { SIGTERM: 15 } } },
+    };
+
+    const runtime = { process: { getBuiltinModule: (id: string) => fakeModules[id] } };
+
+    let transport: StdioTransport | undefined;
+    try {
+      transport = StdioTransport.spawnWithRuntime(runtime, "/tmp/project", "codex-test", ["proxy"], {
+        detached: true,
+      });
+
+      expect(spawnCalls).toEqual([
+        {
+          command: "codex-test",
+          args: ["app-server", "proxy"],
+          options: { cwd: "/tmp/project", detached: true, stdio: ["pipe", "pipe", "pipe"] },
+        },
+      ]);
+      expect(transport.processInfo).toEqual({ pid: 6201, pgid: 6201 });
+
+      const pending = transport.request("thread/start", { cwd: "/tmp/project" });
+      const sent = JSON.parse(stdinWrites[0] ?? "{}") as { id: number };
+      stdoutController?.enqueue(
+        new TextEncoder().encode(`${JSON.stringify({ jsonrpc: "2.0", id: sent.id, result: { ok: true } })}\n`),
+      );
+      expect(await pending).toEqual({ ok: true });
+
+      // Signal deaths must resolve exited as 128 + signal number, matching Bun.
+      const errors: string[] = [];
+      transport.onError((error) => {
+        errors.push(error.message);
+      });
+      for (const listener of exitListeners) {
+        listener(null, "SIGTERM");
+      }
+      await Promise.resolve();
+      expect(errors).toEqual(["codex app-server exited unexpectedly with code 143"]);
+    } finally {
+      stdoutController?.close();
+      await transport?.close();
+    }
+  });
+
+  test("spawn throws a runtime-support error when neither Bun nor getBuiltinModule exists", () => {
+    expect(() => StdioTransport.spawnWithRuntime({}, "/tmp/project")).toThrow(
+      "StdioTransport.spawn requires Bun or Node.js 20.16+ (process.getBuiltinModule). React Native clients should use WebSocketTransport.",
+    );
+  });
+
   test("process exit rejects pending", async () => {
     let resolveExit: ((value: number) => void) | undefined;
 

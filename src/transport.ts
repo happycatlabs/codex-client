@@ -51,6 +51,46 @@ type GlobalWithBun = typeof globalThis & {
   Bun?: BunRuntime;
 };
 
+// Structural views of Node builtins obtained via process.getBuiltinModule.
+// This module must stay free of `node:` imports so React Native bundlers can
+// include it; getBuiltinModule (Node 20.16+/22.3+) is the sanctioned
+// import-free path to builtins.
+type NodeChildProcessLike = {
+  pid?: number;
+  stdin: { write(data: string): unknown; end(): unknown } | null;
+  stdout: unknown;
+  stderr: unknown;
+  once(event: "error", listener: (error: unknown) => void): unknown;
+  once(event: "exit", listener: (code: number | null, signal: string | null) => void): unknown;
+  kill(signal?: string): unknown;
+};
+
+type NodeChildProcessModule = {
+  spawn(
+    command: string,
+    args: string[],
+    options: { cwd: string; detached: boolean; stdio: ["pipe", "pipe", "pipe"] },
+  ): NodeChildProcessLike;
+};
+
+type NodeStreamModule = {
+  Readable: { toWeb(stream: unknown): ReadableStream<Uint8Array> };
+};
+
+type NodeOsModule = {
+  constants: { signals: Record<string, number | undefined> };
+};
+
+type GlobalWithNodeProcess = typeof globalThis & {
+  process?: { getBuiltinModule?: (id: string) => unknown };
+};
+
+/** The runtime globals spawn() consults; injectable so tests can simulate Node. */
+export type SpawnRuntime = {
+  Bun?: BunRuntime;
+  process?: { getBuiltinModule?: (id: string) => unknown };
+};
+
 export class StdioTransport {
   readonly processInfo: CodexProcessInfo | undefined;
 
@@ -93,7 +133,24 @@ export class StdioTransport {
     spawnArgs: string[] = [],
     options: { detached?: boolean } = {},
   ): StdioTransport {
-    const bun = (globalThis as GlobalWithBun).Bun;
+    return StdioTransport.spawnWithRuntime(
+      globalThis as GlobalWithBun & GlobalWithNodeProcess,
+      cwd,
+      codexPath,
+      spawnArgs,
+      options,
+    );
+  }
+
+  /** Internal seam for spawn(); accepts the runtime globals so tests can simulate Node. */
+  static spawnWithRuntime(
+    runtime: SpawnRuntime,
+    cwd: string,
+    codexPath = "codex",
+    spawnArgs: string[] = [],
+    options: { detached?: boolean } = {},
+  ): StdioTransport {
+    const bun = runtime.Bun;
 
     if (bun) {
       const detached = options.detached === true;
@@ -107,7 +164,22 @@ export class StdioTransport {
       return new StdioTransport(child as unknown as StdioProcess, { detached });
     }
 
-    throw new Error("StdioTransport.spawn requires Bun. React Native clients should use WebSocketTransport.");
+    const nodeProcess = runtime.process;
+    if (typeof nodeProcess?.getBuiltinModule === "function") {
+      const getBuiltinModule = nodeProcess.getBuiltinModule.bind(nodeProcess);
+      const childProcessModule = getBuiltinModule("node:child_process") as NodeChildProcessModule | undefined;
+      const streamModule = getBuiltinModule("node:stream") as NodeStreamModule | undefined;
+      if (childProcessModule && streamModule) {
+        return new StdioTransport(
+          spawnNodeStdioProcess(getBuiltinModule, childProcessModule, streamModule, cwd, codexPath, spawnArgs, options),
+          { detached: options.detached === true },
+        );
+      }
+    }
+
+    throw new Error(
+      "StdioTransport.spawn requires Bun or Node.js 20.16+ (process.getBuiltinModule). React Native clients should use WebSocketTransport.",
+    );
   }
 
   send(message: JsonRpcMessage): void {
@@ -309,6 +381,49 @@ export class StdioTransport {
       handler(line);
     }
   }
+}
+
+function spawnNodeStdioProcess(
+  getBuiltinModule: (id: string) => unknown,
+  childProcessModule: NodeChildProcessModule,
+  streamModule: NodeStreamModule,
+  cwd: string,
+  codexPath: string,
+  spawnArgs: string[],
+  options: { detached?: boolean },
+): StdioProcess {
+  const detached = options.detached === true;
+  const child = childProcessModule.spawn(codexPath, ["app-server", ...spawnArgs], {
+    cwd,
+    detached,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  const signals = (getBuiltinModule("node:os") as NodeOsModule | undefined)?.constants.signals ?? {};
+
+  // Node spawn failures (e.g. ENOENT) surface as an async "error" event with
+  // no "exit"; rejecting here routes them through the transport's existing
+  // exited-promise error path. Signal deaths resolve as 128 + signal number to
+  // match Bun's exited semantics.
+  const exited = new Promise<number>((resolve, reject) => {
+    child.once("error", (error: unknown) => reject(toError(error)));
+    child.once("exit", (code: number | null, signal: string | null) => {
+      const signalNumber = signal === null ? undefined : signals[signal];
+      resolve(code ?? (signalNumber !== undefined ? 128 + signalNumber : -1));
+    });
+  });
+
+  return {
+    pid: child.pid,
+    stdin: {
+      write: (data: string) => child.stdin?.write(data),
+      end: () => child.stdin?.end(),
+    },
+    stdout: child.stdout ? streamModule.Readable.toWeb(child.stdout) : null,
+    stderr: child.stderr ? streamModule.Readable.toWeb(child.stderr) : null,
+    exited,
+    kill: (signal?: string) => child.kill(signal),
+  };
 }
 
 function processInfoFor(pid: number | undefined, detached: boolean): CodexProcessInfo | undefined {
