@@ -696,14 +696,27 @@ export interface ThreadTurnsListResult {
   backwardsCursor?: string | null;
 }
 
+/** Codex 0.145+ associates each persisted item with its containing turn. */
+export interface ThreadItemEntry {
+  turnId: string;
+  item: ThreadItem;
+}
+
+/** Stable servers return bare items; Codex 0.145+ returns item envelopes. */
+export type ThreadItemsListEntry = ThreadItem | ThreadItemEntry;
+
 export interface ThreadItemsListResult {
-  data: ThreadItem[];
+  data: ThreadItemsListEntry[];
   nextCursor?: string | null;
   backwardsCursor?: string | null;
 }
 
-/** @deprecated Use `ThreadItemsListResult`. */
-export type ThreadTurnsItemsListResult = ThreadItemsListResult;
+/** @deprecated Use `ThreadItemsListResult`; this shape unwraps 0.145+ entries. */
+export interface ThreadTurnsItemsListResult {
+  data: ThreadItem[];
+  nextCursor?: string | null;
+  backwardsCursor?: string | null;
+}
 
 export interface ThreadResponse {
   thread: Thread;

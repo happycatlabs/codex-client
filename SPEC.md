@@ -60,7 +60,7 @@ export class CodexClient extends EventEmitter {
   async listThreadTurns(params: ThreadTurnsListParams): Promise<ThreadTurnsListResult>; // experimental
   async listThreadItems(params: ThreadItemsListParams): Promise<ThreadItemsListResult>; // experimental
   /** @deprecated Use listThreadItems(). */
-  async listThreadTurnItems(params: ThreadTurnsItemsListParams): Promise<ThreadItemsListResult>;
+  async listThreadTurnItems(params: ThreadTurnsItemsListParams): Promise<ThreadTurnsItemsListResult>;
   async archiveThread(threadId: string): Promise<void>;
   async unarchiveThread(threadId: string): Promise<Thread>;
   async deleteThread(threadId: string): Promise<void>;
@@ -440,7 +440,7 @@ Use an auto-incrementing counter starting at 0. The initialize handshake uses id
 9. **process exit rejects pending** — transport close rejects all pending requests
 10. **detached spawn forwarding** — default false and opt-in true reach Bun.spawn
 11. **process identity** — transport/client expose valid PID/PGID, omit PGID on Windows, and return undefined when unavailable
-12. **experimental history APIs** — turn paging uses `thread/turns/list`; item paging and the deprecated one-turn helper both use `thread/items/list`
+12. **experimental history APIs** — turn paging uses `thread/turns/list`; item paging preserves stable bare items and Codex 0.145+ `{ turnId, item }` entries, while the deprecated one-turn helper unwraps entries back to bare items; both item helpers use `thread/items/list`
 13. **collaboration modes** — presets use `collaborationMode/list` and turn params preserve `collaborationMode`
 14. **thread lifecycle response typing** — start/resume/fork request results expose all current stable response metadata
 

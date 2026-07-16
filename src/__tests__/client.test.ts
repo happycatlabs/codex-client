@@ -8,6 +8,7 @@ import type {
   JsonRpcRequest,
   Thread,
   ThreadItem,
+  ThreadItemEntry,
   Turn,
 } from "../types";
 
@@ -510,7 +511,7 @@ describe("CodexClient unit", () => {
     });
   });
 
-  test("listThreadItems and its deprecated one-turn alias use thread/items/list", async () => {
+  test("listThreadItems preserves stable bare items", async () => {
     const transport = new MockTransport();
     const item: ThreadItem = { type: "agentMessage", id: "item-1", text: "done" };
     transport.setResponder("initialize", () => ({}));
@@ -545,6 +546,26 @@ describe("CodexClient unit", () => {
         params: { threadId: "thread-1", turnId: "turn-1" },
       },
     ]);
+  });
+
+  test("listThreadItems preserves 0.145 entry envelopes while the deprecated helper unwraps them", async () => {
+    const transport = new MockTransport();
+    const item: ThreadItem = { type: "agentMessage", id: "item-1", text: "done" };
+    const entry: ThreadItemEntry = { turnId: "turn-1", item };
+    transport.setResponder("initialize", () => ({}));
+    transport.setResponder("thread/items/list", () => ({
+      data: [entry, { turnId: "turn-2", item: { id: "missing-type" } }],
+      nextCursor: "older-items",
+    }));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    const acrossThread = await client.listThreadItems({ threadId: "thread-1" });
+    const oneTurn = await client.listThreadTurnItems({ threadId: "thread-1", turnId: "turn-1" });
+
+    expect(acrossThread).toEqual({ data: [entry], nextCursor: "older-items" });
+    expect(oneTurn).toEqual({ data: [item], nextCursor: "older-items" });
   });
 
   test("deleteThread calls thread/delete", async () => {
