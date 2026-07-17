@@ -68,9 +68,11 @@ import type {
   SteerTurnParams,
   Thread,
   ThreadCompactedNotification,
+  ThreadItem,
+  ThreadItemEntry,
+  ThreadItemsListEntry,
   ThreadItemsListParams,
   ThreadItemsListResult,
-  ThreadItem,
   ThreadLifecycleNotification,
   ThreadListResult,
   ThreadLoadedListResult,
@@ -391,7 +393,11 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
 
   /** @deprecated Use `listThreadItems()`; this alias keeps the former one-turn helper name. */
   async listThreadTurnItems(params: ThreadTurnsItemsListParams): Promise<ThreadTurnsItemsListResult> {
-    return this.listThreadItems(params);
+    const result = await this.listThreadItems(params);
+    return {
+      ...result,
+      data: result.data.map((entry) => (isThreadItemEntry(entry) ? entry.item : entry)),
+    };
   }
 
   async archiveThread(threadId: string): Promise<void> {
@@ -1105,7 +1111,7 @@ function extractThreadTurnsList(result: unknown): ThreadTurnsListResult {
 function extractThreadItemsList(result: unknown): ThreadItemsListResult {
   if (isObject(result) && Array.isArray(result.data)) {
     return {
-      data: result.data.filter(isThreadItem),
+      data: result.data.filter(isThreadItemsListEntry),
       ...(typeof result.nextCursor === "string" || result.nextCursor === null ? { nextCursor: result.nextCursor } : {}),
       ...(typeof result.backwardsCursor === "string" || result.backwardsCursor === null
         ? { backwardsCursor: result.backwardsCursor }
@@ -1691,6 +1697,14 @@ function isTurn(value: unknown): value is Turn {
 
 function isThreadItem(value: unknown): value is ThreadItem {
   return isObject(value) && typeof value.id === "string" && typeof value.type === "string";
+}
+
+function isThreadItemEntry(value: unknown): value is ThreadItemEntry {
+  return isObject(value) && typeof value.turnId === "string" && isThreadItem(value.item);
+}
+
+function isThreadItemsListEntry(value: unknown): value is ThreadItemsListEntry {
+  return isThreadItem(value) || isThreadItemEntry(value);
 }
 
 function isResponseItem(value: unknown): value is ResponseItem {

@@ -55,8 +55,8 @@ await client.disconnect();
 | `listThreads(params?)`                | List threads with optional cursor pagination                    | `ListThreadsParams?`                         | `Promise<ThreadListResult>`            |
 | `listLoadedThreads(params?)`          | List thread ids currently loaded by app-server                  | `ListLoadedThreadsParams?`                   | `Promise<ThreadLoadedListResult>`      |
 | `listThreadTurns(params)`             | Page stored turns without resuming (experimental)               | `ThreadTurnsListParams`                      | `Promise<ThreadTurnsListResult>`       |
-| `listThreadItems(params)`             | Page stored items, optionally for one turn (experimental)       | `ThreadItemsListParams`                      | `Promise<ThreadItemsListResult>`       |
-| `listThreadTurnItems(params)`         | Deprecated one-turn alias for `listThreadItems()`               | `ThreadTurnsItemsListParams`                 | `Promise<ThreadItemsListResult>`       |
+| `listThreadItems(params)`             | Page stored items across stable and 0.145+ wire shapes          | `ThreadItemsListParams`                      | `Promise<ThreadItemsListResult>`       |
+| `listThreadTurnItems(params)`         | Deprecated one-turn alias that returns bare items               | `ThreadTurnsItemsListParams`                 | `Promise<ThreadTurnsItemsListResult>`  |
 | `archiveThread(threadId)`             | Archive a thread                                                | `threadId: string`                           | `Promise<void>`                        |
 | `deleteThread(threadId)`              | Permanently delete a thread                                     | `threadId: string`                           | `Promise<void>`                        |
 | `compactThread(threadId)`             | Compact a thread's history                                      | `threadId: string`                           | `Promise<void>`                        |
@@ -214,11 +214,21 @@ const items = await client.listThreadItems({
   limit: 100,
   sortDirection: "asc",
 });
+
+for (const entry of items.data) {
+  const item = "item" in entry ? entry.item : entry;
+  const containingTurnId = "item" in entry ? entry.turnId : undefined;
+  console.log(containingTurnId, item.type);
+}
 ```
 
-The current item RPC is `thread/items/list`. `listThreadTurnItems()` remains as
+The current item RPC is `thread/items/list`. Stable servers return bare
+`ThreadItem` values, while Codex 0.145+ returns `{ turnId, item }` envelopes.
+`listThreadItems()` preserves both as the explicit `ThreadItemsListEntry` union
+instead of inventing turn ids for legacy pages. `listThreadTurnItems()` remains
 a deprecated source-compatible alias for consumers of the former one-turn
-helper, but it sends the current wire method. `thread/turns/list` and
+helper; it sends the current wire method and unwraps 0.145+ entries back to
+bare items. `thread/turns/list` and
 `collaborationMode/list` are also live experimental methods in codex-cli
 `0.144.1`; they are intentionally retained even though stable generated
 bindings filter experimental RPCs from the `ClientRequest` union.
