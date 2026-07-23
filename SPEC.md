@@ -177,11 +177,17 @@ async runTurn(params: StartTurnParams): Promise<CompletedTurn> {
   // 1. Start the turn
   // 2. Collect all item:completed events for this turn
   // 3. Wait for turn:completed
-  // 4. Return { turn, items, agentMessage, diff }
+  // 4. Reconcile terminal summary items by item ID
+  // 5. Return { turn, items, agentMessage, diff }
 }
 ```
 
 This is what we'll use most often — fire a task and get back the full result.
+Successful Codex 0.146+ completions can include the final agent message in
+`turn.items` with `itemsView: "summary"` so clients can recover from dropped
+item notifications. `runTurn()` appends missing terminal items and replaces
+matching collected items with the authoritative terminal version, preserving
+one result entry per item ID.
 
 ### Review Helper — `runReview()`
 
@@ -192,7 +198,8 @@ async runReview(params: StartReviewParams): Promise<CompletedReview> {
   // 1. Start the review
   // 2. Collect enteredReviewMode and exitedReviewMode items
   // 3. Wait for turn:completed
-  // 4. Return { turn, reviewText }
+  // 4. Fall back to the terminal agent-message summary when review items were dropped
+  // 5. Return { turn, reviewText }
 }
 ```
 

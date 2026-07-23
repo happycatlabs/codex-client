@@ -620,7 +620,7 @@ describe("CodexClient unit", () => {
     });
   });
 
-  test("runTurn collects items", async () => {
+  test("runTurn reconciles collected items with the terminal summary", async () => {
     const transport = new MockTransport();
     transport.setResponder("initialize", () => ({}));
     transport.setResponder("turn/start", () => ({ turn: { id: "turn-1", status: "inProgress", items: [] } }));
@@ -633,7 +633,12 @@ describe("CodexClient unit", () => {
       input: [{ type: "text", text: "echo hello world" }],
     });
 
-    const item: ThreadItem = {
+    const collectedItem: ThreadItem = {
+      type: "agentMessage",
+      id: "item-1",
+      text: "hello",
+    };
+    const terminalItem: ThreadItem = {
       type: "agentMessage",
       id: "item-1",
       text: "hello world",
@@ -646,7 +651,7 @@ describe("CodexClient unit", () => {
     transport.emitNotification("item/started", {
       threadId: "thread-1",
       turnId: "turn-1",
-      item,
+      item: collectedItem,
     });
     transport.emitNotification("item/agentMessage/delta", {
       threadId: "thread-1",
@@ -657,18 +662,127 @@ describe("CodexClient unit", () => {
     transport.emitNotification("item/completed", {
       threadId: "thread-1",
       turnId: "turn-1",
-      item,
+      item: collectedItem,
     });
     transport.emitNotification("turn/completed", {
       threadId: "thread-1",
-      turn: { id: "turn-1", status: "completed", items: [item] },
+      turn: {
+        id: "turn-1",
+        status: "completed",
+        items: [terminalItem],
+        itemsView: "summary",
+      },
     });
 
     const completed = await promise;
 
     expect(completed.turn.id).toBe("turn-1");
     expect(completed.items).toHaveLength(1);
+    expect(completed.items[0]).toEqual(terminalItem);
     expect(completed.agentMessage).toBe("hello world");
+  });
+
+  test("runTurn falls back to summary items when item notifications are lost", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+    transport.setResponder("turn/start", () => ({ turn: { id: "turn-1", status: "inProgress", items: [] } }));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    const promise = client.runTurn({
+      threadId: "thread-1",
+      input: [{ type: "text", text: "echo hello world" }],
+    });
+    const summaryItem: ThreadItem = {
+      type: "agentMessage",
+      id: "item-1",
+      text: "hello world",
+    };
+
+    transport.emitNotification("turn/completed", {
+      threadId: "thread-1",
+      turn: {
+        id: "turn-1",
+        status: "completed",
+        items: [summaryItem],
+        itemsView: "summary",
+      },
+    });
+
+    const completed = await promise;
+
+    expect(completed.items).toEqual([summaryItem]);
+    expect(completed.agentMessage).toBe("hello world");
+  });
+
+  test("runTurn preserves collected items when legacy terminal items are empty", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+    transport.setResponder("turn/start", () => ({ turn: { id: "turn-1", status: "inProgress", items: [] } }));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    const promise = client.runTurn({
+      threadId: "thread-1",
+      input: [{ type: "text", text: "echo legacy response" }],
+    });
+    const item: ThreadItem = {
+      type: "agentMessage",
+      id: "item-1",
+      text: "legacy response",
+    };
+
+    transport.emitNotification("item/completed", {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      item,
+    });
+    transport.emitNotification("turn/completed", {
+      threadId: "thread-1",
+      turn: { id: "turn-1", status: "completed", items: [] },
+    });
+
+    const completed = await promise;
+
+    expect(completed.items).toEqual([item]);
+    expect(completed.agentMessage).toBe("legacy response");
+  });
+
+  test("runReview falls back to the terminal agent-message summary", async () => {
+    const transport = new MockTransport();
+    transport.setResponder("initialize", () => ({}));
+    transport.setResponder("review/start", () => ({
+      turn: { id: "review-turn-1", status: "inProgress", items: [] },
+    }));
+
+    const client = new CodexClient({ transportFactory: () => transport });
+    await client.connect();
+
+    const promise = client.runReview({
+      threadId: "thread-1",
+      target: { type: "uncommittedChanges" },
+    });
+    const summaryItem: ThreadItem = {
+      type: "agentMessage",
+      id: "review-item-1",
+      text: "No findings.",
+    };
+
+    transport.emitNotification("turn/completed", {
+      threadId: "thread-1",
+      turn: {
+        id: "review-turn-1",
+        status: "completed",
+        items: [summaryItem],
+        itemsView: "summary",
+      },
+    });
+
+    const completed = await promise;
+
+    expect(completed.reviewText).toBe("No findings.");
   });
 
   test("emits context-rich turn and item notification events alongside legacy payloads", async () => {
