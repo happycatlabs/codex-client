@@ -590,7 +590,7 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
         throw new Error(typeof details === "string" && details.length > 0 ? `${message}\n${details}` : message);
       }
 
-      const items = itemsByTurn.get(turn.id) ?? [];
+      const items = this.reconcileCompletedItems(itemsByTurn.get(turn.id) ?? [], completedTurn.items);
       const agentMessage = this.extractAgentMessage(
         items,
         agentMessagesByTurn.get(turn.id) ?? new Map<string, string>(),
@@ -661,7 +661,7 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
       }
 
       const byItem = agentMessagesByTurn.get(turn.id) ?? new Map<string, string>();
-      const fallback = [...byItem.values()].join("").trim();
+      const fallback = this.extractAgentMessage(turn.items, byItem).trim();
       return {
         turn,
         reviewText: fallback,
@@ -1018,6 +1018,29 @@ export class CodexClient extends SimpleEventEmitter<CodexClientEventMap> {
     }
 
     return "";
+  }
+
+  private reconcileCompletedItems(collectedItems: ThreadItem[], terminalItems: ThreadItem[]): ThreadItem[] {
+    const items = [...collectedItems];
+    const itemIndexById = new Map(items.map((item, index) => [item.id, index]));
+
+    for (const terminalItem of terminalItems) {
+      if (terminalItem.type !== "agentMessage") {
+        continue;
+      }
+
+      const existingIndex = itemIndexById.get(terminalItem.id);
+      if (existingIndex === undefined) {
+        itemIndexById.set(terminalItem.id, items.length);
+        items.push(terminalItem);
+      } else {
+        // Successful turn completions may carry an authoritative agent-message
+        // summary to repair item notifications lost under transport pressure.
+        items[existingIndex] = terminalItem;
+      }
+    }
+
+    return items;
   }
 }
 

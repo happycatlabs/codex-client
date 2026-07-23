@@ -164,6 +164,12 @@ const { agentMessage, items, diff } = await client.runTurn({
 });
 ```
 
+Codex 0.146+ includes the final agent message in successful `turn/completed`
+notifications as a summary fallback when item notifications are lost under
+transport pressure. `runTurn()` reconciles that terminal summary with the
+items it collected by item ID, without duplicating items, and treats the
+terminal version as authoritative.
+
 **Use `startTurn()`** when you need to react to streaming events while the turn is in progress — for example, to pipe `item:agentMessage:delta` events to a UI in real time, or to conditionally steer/interrupt the turn based on what the agent is doing.
 
 ```ts
